@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The documentation site is upgraded to docs-sitekit 0.2.3. The footer no longer shows the copyright sign and the year, "Built with docs-sitekit" links to the kit's site, the search button is named "Search" for screen readers, and the side areas of the doc pages are no longer unnamed landmarks.
+
 ## [0.1.0] - 2026-10-28
 
 ### Added
