@@ -6,7 +6,8 @@
     "base": "/recaptcha-next/",
     "repository": "https://github.com/miguelcolmenares/recaptcha-next",
     "license": "MIT",
-    "installCommand": "npm install recaptcha-next"
+    "installCommand": "npm install recaptcha-next",
+    "image": "/social.png"
   },
   "hero": {
     "badge": "reCAPTCHA v3 · React 19 · Next.js",
