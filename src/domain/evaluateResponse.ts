@@ -3,7 +3,7 @@ import type { RecaptchaVerifyResponse, VerificationResult, VerificationRules } f
 
 /**
  * Pure rule: decide if a Google response is good enough.
- * Order matters: Google rejection first, then action, hostname and score.
+ * Order matters: Google rejection, score validity, action, hostname and score threshold.
  */
 export function evaluateResponse(
   response: RecaptchaVerifyResponse,
@@ -13,7 +13,10 @@ export function evaluateResponse(
     return { success: false, reason: "rejected-by-google", errorCodes: response["error-codes"] };
   }
 
-  const score = response.score ?? 0;
+  const score = response.score;
+  if (typeof score !== "number" || !Number.isFinite(score) || score < 0 || score > 1) {
+    return { success: false, reason: "invalid-score" };
+  }
   const action = response.action ?? "";
   const hostname = response.hostname ?? "";
 

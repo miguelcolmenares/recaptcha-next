@@ -14,7 +14,7 @@ export interface VerifierDependencies {
   gateway: VerifyGateway;
   /** Reads the default secret. Called on every verification, never cached. */
   getSecret: () => string | undefined;
-  /** When true, a missing secret fails closed. When false it skips with a warning. */
+  /** Enforce a configured secret. The default server also treats unknown modes as production. */
   isProduction: () => boolean;
   warn: (message: string) => void;
 }
@@ -33,7 +33,7 @@ export function createVerifyRecaptcha(deps: VerifierDependencies): VerifyRecaptc
       if (deps.isProduction()) return { success: false, reason: "missing-secret" };
       deps.warn(
         "[recaptcha] No secret key configured, so verification was SKIPPED. " +
-          "This is only allowed outside production.",
+          "The runtime policy explicitly permits unconfigured verification.",
       );
       return { success: true, skipped: true, reason: "missing-secret-in-development" };
     }

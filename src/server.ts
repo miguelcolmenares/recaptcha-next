@@ -8,15 +8,26 @@ export { createVerifyRecaptcha } from "./application/verifyRecaptcha";
 export { createGoogleVerifyGateway } from "./infrastructure/googleVerifyGateway";
 export type * from "./domain/types";
 
+/** Unknown runtime modes enforce the same secret requirement as production. */
+function requiresConfiguredSecret(): boolean {
+  switch (process.env.NODE_ENV) {
+    case "development":
+    case "test":
+      return false;
+    default:
+      return true;
+  }
+}
+
 /** Verify a token with Google. Reads `RECAPTCHA_SECRET_KEY` unless `options.secret` is given. */
 export const verifyRecaptcha = createVerifyRecaptcha({
   gateway: createGoogleVerifyGateway(),
   getSecret: () => process.env[ENV_SECRET_KEY],
-  isProduction: () => process.env.NODE_ENV === "production",
+  isProduction: requiresConfiguredSecret,
   warn: (message) => console.warn(message),
 });
 
-/** True when a secret key is configured. */
+/** True when verification is required, including in unknown runtime environments. */
 export function isRecaptchaEnabled(): boolean {
-  return Boolean(process.env[ENV_SECRET_KEY]);
+  return requiresConfiguredSecret() || Boolean(process.env[ENV_SECRET_KEY]);
 }
