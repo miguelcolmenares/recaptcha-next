@@ -2,7 +2,8 @@
 import { loadRecaptcha } from "../infrastructure/scriptLoader";
 import type { Grecaptcha } from "../infrastructure/scriptLoader";
 
-const scripts = () => document.head.querySelectorAll('script[src*="recaptcha/api.js"]');
+const scripts = () =>
+  document.head.querySelectorAll<HTMLScriptElement>('script[src*="recaptcha/api.js"]');
 
 function fakeGrecaptcha(): { api: Grecaptcha; fireReady: () => void } {
   const waiting: Array<() => void> = [];
@@ -27,6 +28,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  jest.useRealTimers();
   document.head.innerHTML = "";
   delete window.grecaptcha;
 });
@@ -98,13 +100,135 @@ describe("loadRecaptcha", () => {
     expect(window.grecaptcha).toBe(fake.api);
   });
 
-  it("uses a grecaptcha that is already on the page and adds no script", async () => {
-    const fake = fakeGrecaptcha();
-    window.grecaptcha = fake.api;
+  it("initializes a new key even when a different key already supplied the global", async () => {
+    window.grecaptcha = { ready: (callback) => callback(), execute: jest.fn() };
     const promise = loadRecaptcha(key);
+    expect(scripts()).toHaveLength(1);
+
+    const fake = fakeGrecaptcha();
+    finishLoad(fake);
     fake.fireReady();
     expect(await promise).toBe(fake.api);
+  });
+
+  it("adopts a matching pending layout tag and waits for its own load", async () => {
+    window.grecaptcha = { ready: (callback) => callback(), execute: jest.fn() };
+    const layoutTag = document.createElement("script");
+    layoutTag.src = `https://www.google.com/recaptcha/api.js?hl=en&render=${key}`;
+    document.head.appendChild(layoutTag);
+
+    const ready = loadRecaptcha(key);
+    const received = jest.fn();
+    void ready.then(received);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(received).not.toHaveBeenCalled();
+    expect(scripts()).toHaveLength(1);
+
+    const own = fakeGrecaptcha();
+    window.grecaptcha = own.api;
+    layoutTag.dispatchEvent(new Event("load"));
+    own.fireReady();
+    expect(await ready).toBe(own.api);
+  });
+
+  it("reports a matching layout tag's error and retries with a new tag", async () => {
+    window.grecaptcha = { ready: (callback) => callback(), execute: jest.fn() };
+    const tag = document.createElement("script");
+    tag.src = `https://www.google.com/recaptcha/api.js?render=${key}`;
+    document.head.appendChild(tag);
+
+    const failed = expect(loadRecaptcha(key)).rejects.toThrow("Failed to load reCAPTCHA script");
+    tag.dispatchEvent(new Event("error"));
+    await failed;
     expect(scripts()).toHaveLength(0);
+
+    const retry = loadRecaptcha(key);
+    const own = fakeGrecaptcha();
+    finishLoad(own);
+    own.fireReady();
+    expect(await retry).toBe(own.api);
+  });
+
+  it("recognizes a layout's completion marker without waiting for a repeated event", async () => {
+    const tag = document.createElement("script");
+    tag.src = `https://www.google.com/recaptcha/api.js?render=${key}`;
+    tag.dataset.recaptchaLoaded = "true";
+    document.head.appendChild(tag);
+    const own = fakeGrecaptcha();
+    window.grecaptcha = own.api;
+
+    const loaded = loadRecaptcha(key);
+    own.fireReady();
+    expect(await loaded).toBe(own.api);
+    expect(scripts()).toHaveLength(1);
+  });
+
+  it.each([
+    "https://example.com/recaptcha/api.js",
+    "https://www.google.com/extra/recaptcha/api.js",
+  ])("ignores completion markers from another endpoint: %s", async (url) => {
+    const foreign = document.createElement("script");
+    foreign.src = `${url}?render=${key}`;
+    foreign.dataset.recaptchaLoaded = "true";
+    document.head.appendChild(foreign);
+    window.grecaptcha = { ready: (callback) => callback(), execute: jest.fn() };
+
+    const ready = loadRecaptcha(key);
+    expect(scripts()).toHaveLength(2);
+    const api = fakeGrecaptcha();
+    window.grecaptcha = api.api;
+    scripts()[1]?.dispatchEvent(new Event("load"));
+    api.fireReady();
+    expect(await ready).toBe(api.api);
+  });
+
+  it("does not accept a global or a stale timing entry as proof of the matching tag's load", async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(performance, "getEntriesByName");
+    const previousRequest = jest.fn(() => [{ entryType: "resource", initiatorType: "link" }]);
+    Object.defineProperty(performance, "getEntriesByName", {
+      value: previousRequest,
+      configurable: true,
+    });
+    try {
+      const tag = document.createElement("script");
+      tag.src = `https://www.google.com/recaptcha/api.js?render=${key}`;
+      document.head.appendChild(tag);
+      window.grecaptcha = { ready: (callback) => callback(), execute: jest.fn() };
+      const ready = loadRecaptcha(key);
+      const resolved = jest.fn();
+      void ready.then(resolved);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(resolved).not.toHaveBeenCalled();
+      expect(previousRequest).not.toHaveBeenCalled();
+
+      const api = fakeGrecaptcha();
+      window.grecaptcha = api.api;
+      tag.dispatchEvent(new Event("load"));
+      api.fireReady();
+      expect(await ready).toBe(api.api);
+    } finally {
+      if (descriptor) Object.defineProperty(performance, "getEntriesByName", descriptor);
+      else delete (performance as { getEntriesByName?: unknown }).getEntriesByName;
+    }
+  });
+
+  it("times out an unconfirmed tag and remembers its later successful load", async () => {
+    jest.useFakeTimers();
+    const tag = document.createElement("script");
+    tag.src = `https://www.google.com/recaptcha/api.js?render=${key}`;
+    document.head.appendChild(tag);
+    window.grecaptcha = { ready: (callback) => callback(), execute: jest.fn() };
+    const timeout = expect(loadRecaptcha(key)).rejects.toThrow("Failed to load reCAPTCHA script");
+    await jest.advanceTimersByTimeAsync(15_000);
+    await timeout;
+    expect(scripts()).toHaveLength(1);
+
+    const api = fakeGrecaptcha();
+    window.grecaptcha = api.api;
+    tag.dispatchEvent(new Event("load"));
+    api.fireReady();
+    expect(await loadRecaptcha(key)).toBe(api.api);
+    expect(scripts()).toHaveLength(1);
   });
 
   it("keeps a separate load for each site key", () => {

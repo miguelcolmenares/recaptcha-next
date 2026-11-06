@@ -10,9 +10,9 @@
     "image": "/social.png"
   },
   "hero": {
-    "badge": "reCAPTCHA v3 · React 19 · Next.js",
+    "badge": "reCAPTCHA v3 \u00b7 React 19 \u00b7 Next.js",
     "title": "reCAPTCHA v3 for Next.js, built for Server Actions.",
-    "lede": "A client field that keeps a fresh token in a hidden input, and a server function that checks it with Google. Typed results, one script per page, MIT licensed.",
+    "lede": "A client field that keeps a fresh token in a hidden input, and a server function that checks it with Google. Typed results, one script per site key, MIT licensed.",
     "primary": {
       "label": "Get started",
       "href": "/docs/getting-started/"
@@ -38,14 +38,14 @@
     {
       "icon": "layers",
       "eyebrow": "Navigation",
-      "title": "One script per page",
-      "text": "The script is loaded once and shared, also across client-side navigation, so Next.js routing never leaves duplicate badges."
+      "title": "One script per site key",
+      "text": "Fields with the same key share a script across mounts and client-side navigation. Different site keys initialize independently."
     },
     {
       "icon": "file-text",
       "eyebrow": "Fails closed",
-      "title": "A missing secret is refused in production",
-      "text": "A deploy without RECAPTCHA_SECRET_KEY refuses every request instead of letting everyone in. Locally, the check is skipped with a warning."
+      "title": "Missing configuration fails closed",
+      "text": "Only explicit development and test modes may skip a missing secret. Production and unknown runtime modes require verification."
     }
   ],
   "nav": [],

@@ -60,6 +60,14 @@ Google returns the action and the hostname the token was made for. Pass `expecte
 
 Google scores each visit from 0 to 1. `verifyRecaptcha` rejects a score below `minScore`, which is `0.5` by default, with `low-score`. Raise it for sensitive forms and lower it if real visitors are refused. Decide on what you see in your own traffic.
 
+Malformed scores return `invalid-score` before threshold rules are applied.
+The score must be a finite number from 0 through 1, including at `minScore: 0`.
+
 ## When the secret is missing
 
-In production a missing `RECAPTCHA_SECRET_KEY` fails with `missing-secret`, so a misconfigured deploy refuses everyone instead of letting everyone in. Outside production the check is skipped with a warning in the logs, so local work does not need keys.
+With the default server, a missing secret returns `missing-secret` unless
+`NODE_ENV` is exactly `"development"` or `"test"`. Only those modes allow a skip
+with a warning. An absent variable, an empty value or `"staging"` requires the secret.
+
+`isRecaptchaEnabled()` follows the same policy. A guard using this helper therefore
+cannot skip verification merely because a production or unknown environment has no secret.

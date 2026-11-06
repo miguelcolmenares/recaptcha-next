@@ -90,22 +90,29 @@ Use it to get a fresh token at submit time instead of keeping a hidden input.
 - `verifyRecaptcha(token, options?)` returns a `VerificationResult`, it does not throw.
   Options: `minScore` (default `0.5`), `expectedAction`, `expectedHostname`, `secret`, `remoteIp`.
 - `getRecaptchaToken(formData, field?)` returns the token or `null`.
-- `isRecaptchaEnabled()` is `true` when `RECAPTCHA_SECRET_KEY` is set.
+- `isRecaptchaEnabled()` indicates whether verification is required. It returns
+  `false` only in explicit development or test mode without a configured secret.
 - `createVerifyRecaptcha(deps)` and `createGoogleVerifyGateway(options)` build a custom verifier, for tests or other runtimes.
 
-The result is one of:
+Results distinguish three outcomes:
 
-```ts
-{ success: true, skipped: false, score, action, hostname }
-{ success: true, skipped: true, reason: "missing-secret-in-development" }
-{ success: false, reason, score?, errorCodes? }
-```
+| Outcome  | Result fields                                                               |
+| -------- | --------------------------------------------------------------------------- |
+| Verified | `success: true`, `skipped: false`, `score`, `action`, `hostname`            |
+| Skipped  | `success: true`, `skipped: true`, `reason: "missing-secret-in-development"` |
+| Refused  | `success: false`, `reason`, optional `score` and `errorCodes`               |
 
 Failure reasons: `missing-secret`, `missing-token`, `request-failed`, `rejected-by-google`,
-`low-score`, `action-mismatch`, `hostname-mismatch`.
+`invalid-score`, `low-score`, `action-mismatch`, `hostname-mismatch`.
 
-**Missing secret.** In production a missing `RECAPTCHA_SECRET_KEY` fails with `missing-secret`.
-Outside production verification is skipped, with a clear warning in the logs, so local work does not need keys.
+`invalid-score` rejects a missing score, a non-number, a non-finite number or a
+number outside 0 through 1. `minScore: 0` still accepts a genuine score of zero.
+
+**Missing secret.** The default server permits a missing secret only when
+`NODE_ENV` is exactly `"development"` or `"test"`, and logs a warning when it skips.
+Production, absent, empty and unknown values require the secret and return
+`missing-secret` if it is unavailable. Custom verifiers use their injected
+`isProduction` policy, where `true` enforces a configured secret.
 
 ### Root entry
 
@@ -116,9 +123,26 @@ It has no React and no browser code, so it is safe in Server Components.
 
 The Google script is loaded the first time a field needs it and is **not** removed when the field unmounts.
 Google keeps its own state (the badge, iframes and extra scripts), and removing the tag does not reset it.
-Loading it again after a client-side navigation left duplicate badges, so it is loaded once per page.
+Each site key has its own script and promise, reused across mounts and navigation.
 The badge therefore stays visible on pages that have no form after the first visit to one that does.
 If you want the badge hidden, follow Google's rules for showing the reCAPTCHA branding text instead.
+
+A script added by a layout is matched by its Google endpoint and `render` key.
+An existing global alone does not initialize a different key. If your layout
+finishes loading before the field mounts, mark that script after its load succeeds:
+
+```html
+<script
+  src="https://www.google.com/recaptcha/api.js?render=YOUR_KEY"
+  onload="this.setAttribute('data-recaptcha-loaded', 'true')"
+></script>
+```
+
+For Next.js `<Script>`, set this attribute on the element from `onLoad` or
+`onReady`. Set it only after successful loading, never as an initial attribute.
+An unmarked existing tag must emit its own load event within 15 seconds.
+An error or timeout rejects the load, without using another key's global.
+Already-finished, unmarked tags time out because their load event cannot repeat.
 
 ## Custom `FormData`
 
