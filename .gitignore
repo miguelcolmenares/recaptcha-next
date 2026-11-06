@@ -9,3 +9,6 @@ playwright-report/
 .env.local
 .env.*.local
 e2e/fixture/.build/
+
+# Drawn by the docs workflow with social-card-action
+site/public/social.png
