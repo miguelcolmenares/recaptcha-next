@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The default server requires a secret in production and in absent or unknown
+  runtime modes. Only explicit development and test modes allow unconfigured checks.
+  `isRecaptchaEnabled()` uses the same rule as the default verifier.
+- Malformed scores return `invalid-score`, including at `minScore: 0`.
+  The domain rule accepts only finite numeric scores from 0 through 1.
+- Browser loading initializes each key independently. Matching layout tags wait
+  for their own load event or require a completion marker set after successful loading.
+  Unconfirmed layout loads reject after 15 seconds; failed tags allow retries.
+  The README and navigation guide explain the layout marker requirement.
+
 ### Changed
 
 - The documentation site is upgraded to docs-sitekit 0.2.4, and a shared link to it now shows a picture: `site.image` names `/social.png`, a 1200 by 630 card that the docs workflow draws with [social-card-action](https://github.com/miguelcolmenares/social-card-action), so the pages have `og:image`, `twitter:image` and a large Twitter card.

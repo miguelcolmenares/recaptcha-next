@@ -17,6 +17,18 @@ beforeAll(async () => {
       lastBody = raw;
       const params = new URLSearchParams(raw);
       res.setHeader("Content-Type", "application/json");
+      const malformed: Record<string, string> = {
+        "missing-score": '{"success":true}',
+        "text-score": '{"success":true,"score":"0.9"}',
+        "large-score": '{"success":true,"score":1.1}',
+        "infinite-score": '{"success":true,"score":1e400}',
+        "zero-score": '{"success":true,"score":0}',
+      };
+      const answer = malformed[params.get("response") ?? ""];
+      if (answer) {
+        res.end(answer);
+        return;
+      }
       if (params.get("response") === "boom") {
         res.statusCode = 500;
         res.end("{}");
@@ -64,5 +76,23 @@ describe("verify flow over HTTP", () => {
 
   it("reports request-failed when the endpoint errors", async () => {
     expect(await verifier()("boom")).toEqual({ success: false, reason: "request-failed" });
+  });
+
+  it.each(["missing-score", "text-score", "large-score", "infinite-score"])(
+    "rejects %s after real HTTP and JSON parsing",
+    async (token) => {
+      expect(await verifier()(token, { minScore: 0 })).toEqual({
+        success: false,
+        reason: "invalid-score",
+      });
+    },
+  );
+
+  it("accepts a genuine zero score from HTTP when the minimum is zero", async () => {
+    expect(await verifier()("zero-score", { minScore: 0 })).toMatchObject({
+      success: true,
+      skipped: false,
+      score: 0,
+    });
   });
 });

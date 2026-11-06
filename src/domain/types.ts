@@ -13,6 +13,7 @@ export type VerificationFailureReason =
   | "missing-token"
   | "request-failed"
   | "rejected-by-google"
+  | "invalid-score"
   | "low-score"
   | "action-mismatch"
   | "hostname-mismatch";

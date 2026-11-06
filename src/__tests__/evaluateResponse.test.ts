@@ -52,7 +52,21 @@ describe("evaluateResponse", () => {
     expect(evaluateResponse(good, { expectedHostname: "example.com" }).success).toBe(true);
   });
 
-  it("treats a missing score as 0", () => {
-    expect(evaluateResponse({ success: true })).toMatchObject({ reason: "low-score", score: 0 });
+  it.each([undefined, null, "0.9", NaN, Infinity, -Infinity, -0.1, 1.1])(
+    "rejects malformed score %p even when the minimum is zero",
+    (score) => {
+      const response = { ...good, score } as unknown as Parameters<typeof evaluateResponse>[0];
+      expect(evaluateResponse(response, { minScore: 0 })).toEqual({
+        success: false,
+        reason: "invalid-score",
+      });
+    },
+  );
+
+  it.each([0, 1])("accepts a valid boundary score %p", (score) => {
+    expect(evaluateResponse({ ...good, score }, { minScore: 0 })).toMatchObject({
+      success: true,
+      score,
+    });
   });
 });

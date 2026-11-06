@@ -6,11 +6,35 @@ order: 4
 
 Next.js moves between pages without reloading, so a form can mount and unmount many times in one visit. This page explains what the package does about Google's script when that happens.
 
-## The script is loaded once
+## The script is loaded once per site key
 
-The script is loaded the first time a field needs it and is **not** removed when the field unmounts. Google keeps its own state, the badge, its iframes and extra scripts, and removing the script tag does not reset any of it. Loading the script again after a client-side navigation left duplicate badges, so it is loaded once per page and every field shares it.
+Each site key's script is loaded when a field first needs it and stays after the
+field unmounts. Google maintains its badge, iframes and additional scripts, so
+removing the tag would leave other state behind. Fields with the same key share
+the script and its promise across navigation. Different keys initialize separately.
 
-Two forms on one page, or a form that mounts again after you navigate away and back, all use the same script and the same promise.
+## A layout that already loads Google
+
+The adapter can adopt a layout's tag when its Google endpoint and `render` key match.
+It waits for that element's load event before reading the API and calling `ready`.
+A global from another key or a Resource Timing entry cannot confirm execution.
+
+If the tag finishes before a field mounts, its successful load handler must set
+`data-recaptcha-loaded="true"`. With Next.js `<Script>`, set the attribute from
+`onLoad` or `onReady`. For an HTML script:
+
+```html
+<script
+  src="https://www.google.com/recaptcha/api.js?render=YOUR_KEY"
+  onload="this.setAttribute('data-recaptcha-loaded', 'true')"
+></script>
+```
+
+Do not set the marker before loading succeeds.
+
+An unconfirmed existing tag fails after 15 seconds. This includes a tag that
+finished before observation without the completion marker. Failed tags are removed
+so a retry can load again, and late successful events remain reusable.
 
 ## The badge stays visible
 

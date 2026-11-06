@@ -16,35 +16,107 @@ const LOAD_ERROR_MESSAGE = "Failed to load reCAPTCHA script";
 
 // One promise per site key, kept for the life of the page.
 //
-// The script is never removed. Google's script keeps state of its own (badge, iframes, extra
+// A successfully loaded script is never removed. Google keeps its own state (badge, iframes, extra
 // scripts), and removing our tag does not reset it. Tested against real Google: loading it again
 // after a client-side navigation left duplicate badges and extra scripts, and sometimes a global
 // with no script tag. Loading once, as a plain <script> in a layout would, avoids all of that.
 const loads = new Map<string, Promise<Grecaptcha>>();
+const registrations = new WeakMap<HTMLScriptElement, Promise<Grecaptcha>>();
+const ADOPTED_SCRIPT_TIMEOUT_MS = 15_000;
 
 function whenReady(grecaptcha: Grecaptcha): Promise<Grecaptcha> {
   return new Promise((resolve) => grecaptcha.ready(() => resolve(grecaptcha)));
 }
 
-function start(siteKey: string): Promise<Grecaptcha> {
-  // The page already has reCAPTCHA (loaded by someone else): use it.
-  if (window.grecaptcha?.ready) return whenReady(window.grecaptcha);
+/** Find the API endpoint for this key, allowing Google's extra query parameters. */
+function findLayoutScript(siteKey: string): HTMLScriptElement | undefined {
+  const expected = new URL(RECAPTCHA_SCRIPT_URL);
+  for (const element of document.scripts) {
+    if (!element.src) continue;
+    try {
+      const actual = new URL(element.src, document.baseURI);
+      if (
+        actual.origin === expected.origin &&
+        actual.pathname === expected.pathname &&
+        actual.searchParams.get("render") === siteKey
+      )
+        return element;
+    } catch {
+      // An invalid URL cannot identify a reCAPTCHA loader.
+    }
+  }
+  return undefined;
+}
 
-  return new Promise<Grecaptcha>((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = `${RECAPTCHA_SCRIPT_URL}?render=${encodeURIComponent(siteKey)}`;
-    script.async = true;
-    script.addEventListener("load", () => {
-      // The load event only says the file ran. `ready` says Google can answer.
-      if (window.grecaptcha?.ready) resolve(whenReady(window.grecaptcha));
-      else reject(new Error(LOAD_ERROR_MESSAGE));
-    });
-    script.addEventListener("error", () => {
-      script.remove();
+/** Read the global only after the requested key's script has executed. */
+function readyApi(): Promise<Grecaptcha> {
+  const api = window.grecaptcha;
+  if (!api || typeof api.ready !== "function") return Promise.reject(new Error(LOAD_ERROR_MESSAGE));
+  return whenReady(api);
+}
+
+/** Keep one event registration per element, even when an earlier caller timed out. */
+function registerScript(element: HTMLScriptElement): Promise<Grecaptcha> {
+  const registered = registrations.get(element);
+  if (registered) return registered;
+  if (element.dataset.recaptchaLoaded === "true") return readyApi();
+
+  const registration = new Promise<Grecaptcha>((resolve, reject) => {
+    function detach() {
+      element.removeEventListener("load", loaded);
+      element.removeEventListener("error", failed);
+    }
+    function loaded() {
+      detach();
+      element.dataset.recaptchaLoaded = "true";
+      resolve(readyApi());
+    }
+    function failed() {
+      detach();
+      element.remove();
       reject(new Error(LOAD_ERROR_MESSAGE));
-    });
-    document.head.appendChild(script);
+    }
+    element.addEventListener("load", loaded, { once: true });
+    element.addEventListener("error", failed, { once: true });
   });
+  registrations.set(element, registration);
+  void registration.catch(() => registrations.delete(element));
+  return registration;
+}
+
+/** Reject uncertain layout loads without treating any existing global as confirmation. */
+function adoptScript(element: HTMLScriptElement): Promise<Grecaptcha> {
+  return new Promise((resolve, reject) => {
+    const deadline = setTimeout(
+      () => reject(new Error(LOAD_ERROR_MESSAGE)),
+      ADOPTED_SCRIPT_TIMEOUT_MS,
+    );
+    void registerScript(element).then(
+      (api) => {
+        clearTimeout(deadline);
+        resolve(api);
+      },
+      (error: unknown) => {
+        clearTimeout(deadline);
+        reject(error);
+      },
+    );
+  });
+}
+
+function start(siteKey: string): Promise<Grecaptcha> {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return Promise.reject(new Error(LOAD_ERROR_MESSAGE));
+  }
+  const layoutScript = findLayoutScript(siteKey);
+  if (layoutScript) return adoptScript(layoutScript);
+
+  const element = document.createElement("script");
+  element.src = `${RECAPTCHA_SCRIPT_URL}?render=${encodeURIComponent(siteKey)}`;
+  element.async = true;
+  const registration = registerScript(element);
+  document.head.appendChild(element);
+  return registration;
 }
 
 /**
