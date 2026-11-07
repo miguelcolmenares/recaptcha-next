@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The documentation site is upgraded to docs-sitekit 0.2.4, and a shared link to it now shows a picture: `site.image` names `/social.png`, a 1200 by 630 card that the docs workflow draws with [social-card-action](https://github.com/miguelcolmenares/social-card-action), so the pages have `og:image`, `twitter:image` and a large Twitter card.
 - The documentation site is upgraded to docs-sitekit 0.2.3. The footer no longer shows the copyright sign and the year, "Built with docs-sitekit" links to the kit's site, the search button is named "Search" for screen readers, and the side areas of the doc pages are no longer unnamed landmarks.
 
+### Security
+
+- **`minimatch` is 11.0.5 in the development dependencies.** Versions 7.0.0 to 11.0.0 allow a denial of service through glob parts amplification (GHSA-g3hv-75wg-m249, patched in 11.0.1). An `overrides` entry in `package.json` moves the 10.x and 9.x copies that `eslint`, `glob` and the test tooling pull in to 11.0.5. It is a development dependency only, so the shipped package does not change.
+
 ## [0.1.0] - 2026-10-28
 
 ### Added
