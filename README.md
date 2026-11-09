@@ -95,16 +95,16 @@ for the full table and examples.
 
 `<RecaptchaField />` props:
 
-| Prop                | Default                          | Description                                                     |
-| ------------------- | -------------------------------- | --------------------------------------------------------------- |
-| `action`            | required                         | Action name. Check the same name on the server.                 |
-| `siteKey`           | `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` | Public site key. Without a key the field renders nothing.       |
-| `name`              | `g-recaptcha-response`           | Name of the hidden input.                                       |
-| `lazy`              | `false`                          | Load Google's script only when the form is near the viewport.   |
-| `lazyRootMargin`    | `200px`                          | How early lazy loading starts.                                  |
-| `refreshIntervalMs` | `90000`                          | Time between token refreshes. Google tokens last two minutes.   |
-| `onTokenGenerated`  |                                  | Called with each new token. Inline functions are safe.          |
-| `onError`           |                                  | Called when the script fails to load or a token cannot be made. |
+| Prop                | Default                          | Description                                                                                            |
+| ------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `action`            | required                         | Action name. Check the same name on the server.                                                        |
+| `siteKey`           | `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` | Public site key. Without a key the field renders nothing.                                              |
+| `name`              | `g-recaptcha-response`           | Name of the hidden input.                                                                              |
+| `lazy`              | `false`                          | Load Google's script only when the form is near the viewport.                                          |
+| `lazyRootMargin`    | `200px`                          | How early lazy loading starts.                                                                         |
+| `refreshIntervalMs` | `90000`                          | Time between token refreshes. Google tokens last two minutes.                                          |
+| `onTokenGenerated`  |                                  | Called with each new token. Inline functions are safe.                                                 |
+| `onError`           |                                  | Called on each failure: the script, a token or a renewal. Failed renewals repeat with a growing delay. |
 
 `useRecaptcha({ action, siteKey?, enabled? })` returns `{ status, error, execute }`.
 Use it to get a fresh token at submit time instead of keeping a hidden input.
