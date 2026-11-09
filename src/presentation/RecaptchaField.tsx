@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { RECAPTCHA_TOKEN_FIELD, TOKEN_REFRESH_MARGIN_MS, TOKEN_TTL_MS } from "../domain";
+import { callSafely } from "./callSafely";
 import { readSiteKey } from "./readSiteKey";
 import { useRecaptcha } from "./useRecaptcha";
 
@@ -131,7 +132,7 @@ export function RecaptchaField({
   const { status, error, execute } = useRecaptcha({ action, siteKey, enabled: visible });
 
   useEffect(() => {
-    if (error) onErrorRef.current?.(error);
+    if (error) callSafely(onErrorRef.current, error, "onError");
   }, [error]);
 
   useEffect(() => {
@@ -157,18 +158,20 @@ export function RecaptchaField({
       inFlight = true;
       clearTimeout(timer);
       let next = "";
-      let renewed = false;
+      let failure: Error | undefined;
       try {
         next = await withTimeout(execute(), EXECUTE_TIMEOUT_MS);
-        renewed = true;
       } catch (cause) {
-        if (!cancelled)
-          onErrorRef.current?.(cause instanceof Error ? cause : new Error(String(cause)));
+        failure = cause instanceof Error ? cause : new Error(String(cause));
       } finally {
         inFlight = false;
       }
       if (cancelled) return;
-      if (renewed) {
+
+      // All bookkeeping comes first (the input, the expiry timer, the failure count and the next
+      // request). A callback runs last and through `callSafely`, so one that throws cannot skip
+      // any of it.
+      if (failure === undefined) {
         failures = 0;
         // The input is controlled, so React writes the new value only after the next render. The
         // callback runs before that, and a consumer that reads or submits the form in it must
@@ -176,7 +179,6 @@ export function RecaptchaField({
         // value, so the render that follows changes nothing.
         if (inputRef.current) inputRef.current.value = next;
         setIssued({ key: tokenKey, value: next });
-        onTokenRef.current?.(next);
         clearTimeout(expiry);
         expiry = setTimeout(() => {
           // Clear only the token that was issued here, never a newer one.
@@ -190,12 +192,15 @@ export function RecaptchaField({
       if (renewAgain) {
         renewAgain = false;
         void refresh();
-      } else if (renewed) {
+      } else if (failure === undefined) {
         timer = setTimeout(refresh, refreshIntervalMs);
       } else {
         const delay = Math.min(RETRY_DELAY_MS * 2 ** (failures - 1), RETRY_MAX_DELAY_MS);
         timer = setTimeout(refresh, delay);
       }
+
+      if (failure === undefined) callSafely(onTokenRef.current, next, "onTokenGenerated");
+      else callSafely(onErrorRef.current, failure, "onError");
     };
 
     // The browser has already read the spent token into this FormData, so it can be dropped

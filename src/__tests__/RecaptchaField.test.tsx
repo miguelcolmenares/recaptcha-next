@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
 import { act, render, screen, waitFor } from "@testing-library/react";
-import { useState } from "react";
+import { Component, useState } from "react";
+import type { ReactNode } from "react";
 import { RecaptchaField } from "../presentation/RecaptchaField";
 import type { Grecaptcha } from "../infrastructure/scriptLoader";
 
@@ -1229,6 +1230,124 @@ describe("RecaptchaField", () => {
       expect(second.get("g-recaptcha-response")).toBe("token-1");
       await settle();
       expect(hiddenInput(container)?.value).toBe("token-2");
+    });
+  });
+  describe("a callback that throws", () => {
+    let logged: jest.SpyInstance;
+
+    beforeEach(() => {
+      logged = jest.spyOn(console, "error").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      logged.mockRestore();
+    });
+
+    /** Mounts a loaded field on fake timers, with the callbacks the test passes. */
+    async function mountWith(props: {
+      onTokenGenerated?: (token: string) => void;
+      onError?: (error: Error) => void;
+      refreshIntervalMs?: number;
+    }) {
+      jest.useFakeTimers();
+      const utils = render(<RecaptchaField action="a" siteKey={site} {...props} />);
+      await finishScriptLoad();
+      await tick();
+      return { ...utils, value: () => hiddenInput(utils.container)?.value };
+    }
+
+    it("onTokenGenerated throwing still sets the expiry timer and the next renewal", async () => {
+      execute.mockResolvedValueOnce("token-1").mockRejectedValue(new Error("offline"));
+      const { value } = await mountWith({
+        onTokenGenerated: () => {
+          throw new Error("consumer bug");
+        },
+      });
+      expect(value()).toBe("token-1");
+      expect(logged).toHaveBeenCalledWith(
+        expect.stringContaining("[recaptcha-next]"),
+        new Error("consumer bug"),
+      );
+
+      await advance(90_000);
+      expect(execute).toHaveBeenCalledTimes(2);
+      await advance(29_999);
+      expect(value()).toBe("token-1");
+      await advance(1); // 120 s after the token was issued
+      expect(value()).toBe("");
+    });
+
+    it("onTokenGenerated throwing does not stop the renewals on the interval", async () => {
+      let issued = 0;
+      execute.mockImplementation(async () => `token-${++issued}`);
+      const { container, value } = await mountWith({
+        onTokenGenerated: () => {
+          throw new Error("consumer bug");
+        },
+        refreshIntervalMs: 1000,
+      });
+      expect(value()).toBe("token-1");
+
+      await advance(1000);
+      await advance(1000);
+      expect(value()).toBe("token-3");
+      expect(hiddenInput(container)?.value).toBe("token-3");
+    });
+
+    it("onError throwing keeps the failure count and the retry going", async () => {
+      execute.mockRejectedValue(new Error("down"));
+      const onError = jest.fn(() => {
+        throw new Error("consumer bug");
+      });
+      await mountWith({ onError, refreshIntervalMs: 1000 });
+      expect(execute).toHaveBeenCalledTimes(1);
+
+      await advance(4999);
+      expect(execute).toHaveBeenCalledTimes(1);
+      await advance(1); // 5 s
+      expect(execute).toHaveBeenCalledTimes(2);
+      await advance(9999);
+      expect(execute).toHaveBeenCalledTimes(2);
+      await advance(1); // 10 s later, so the failure count went up
+      expect(execute).toHaveBeenCalledTimes(3);
+      expect(onError).toHaveBeenCalledTimes(3);
+      expect(logged).toHaveBeenCalledWith(
+        expect.stringContaining("[recaptcha-next]"),
+        new Error("consumer bug"),
+      );
+    });
+
+    it("an onError that throws for a failed script load does not reach an error boundary", async () => {
+      class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+        state = { failed: false };
+        static getDerivedStateFromError() {
+          return { failed: true };
+        }
+        render() {
+          return this.state.failed ? <p>boundary</p> : this.props.children;
+        }
+      }
+      const onError = jest.fn(() => {
+        throw new Error("consumer bug");
+      });
+      const { container } = render(
+        <Boundary>
+          <RecaptchaField action="a" siteKey={site} onError={onError} />
+        </Boundary>,
+      );
+      await waitFor(() => expect(scripts()).toHaveLength(1));
+      await act(async () => {
+        scripts()[0]?.dispatchEvent(new Event("error"));
+      });
+      await tick();
+
+      expect(onError).toHaveBeenCalledWith(new Error("Failed to load reCAPTCHA script"));
+      expect(container.textContent).not.toContain("boundary");
+      expect(hiddenInput(container)).not.toBeNull();
+      expect(logged).toHaveBeenCalledWith(
+        expect.stringContaining("[recaptcha-next]"),
+        new Error("consumer bug"),
+      );
     });
   });
 });
