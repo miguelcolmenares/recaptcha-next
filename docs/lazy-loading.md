@@ -22,6 +22,8 @@ Until the script loads there is no token, so a very fast submit can happen befor
 
 A submit before the field is visible, such as a `form.requestSubmit()` in your code, loads the script. That first submit goes out without a token, so only the next submit carries one.
 
+If the script fails to load, the field tries again after 5, 10, 20 and then 30 seconds, and reports each failed attempt to `onError`. A site key that is not there at mount, for example one that arrives in a prop later, does not turn lazy loading off: the field waits for the key, and then for the form to come near the viewport.
+
 ## Token refresh
 
 Google tokens last two minutes. The field replaces its token every `refreshIntervalMs`, which is 90 seconds by default, so a visitor who takes a while to fill the form still submits a valid one. The field also asks for a new token when the browser builds the form's data for a submit, so a retry after a refusal has a fresh one. See [Server Actions](server-actions.md).

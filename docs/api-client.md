@@ -18,14 +18,22 @@ Renders a hidden input and keeps a fresh token in it.
 | `lazy`              | `false`                          | Load Google's script only when the form is near the viewport.                                          |
 | `lazyRootMargin`    | `200px`                          | How early lazy loading starts.                                                                         |
 | `refreshIntervalMs` | `90000`                          | Time between token refreshes. Google tokens last two minutes.                                          |
-| `onTokenGenerated`  |                                  | Called with each new token, already in the hidden input. Inline functions are safe.                    |
-| `onError`           |                                  | Called on each failure: the script, a token or a renewal. Failed renewals repeat with a growing delay. |
+| `onTokenGenerated`  |                                  | Called with each new token, already in the hidden input. A throw is logged, not rethrown.              |
+| `onError`           |                                  | Called on each failed script load, token or renewal. Failures are retried, each attempt reported once. |
 
-A token works once. When the browser builds the form's data for a submit (the `formdata` event), the field asks for a
-new token, and the timer keeps renewing it. A canceled submit renews nothing. Reading the form with
-`new FormData(form)` also renews it, so read it once, at submit time. A field outside a `<form>` renews on the timer
-only. A failed token request is retried after 5 seconds, then after 10, 20 and 30 seconds, and a token is cleared when
-its two minutes pass. See [Server Actions](server-actions.md) for retries after a refusal.
+A token works once. When the browser builds the form's data for a submit (the `formdata` event), the field drops the
+token it held and asks for a new one, and the timer keeps renewing it. It asks only when a token was spent. Reading an
+empty field, or reading while a request is already in flight, asks for nothing, so a failing renewal keeps its
+backoff. A canceled submit renews nothing, and a `formdata` event from another form, even one nested inside this one,
+is ignored. Reading the form with `new FormData(form)` also fires the event, so read it once, at submit time. A field
+outside a `<form>` renews on the timer only. A change of `refreshIntervalMs` applies from the next refresh.
+
+A failed token request is retried after 5 seconds, then after 10, 20 and 30 seconds. A failed script load is retried
+with the same waits, until it works, the site key changes or the field unmounts, and a new key starts again at 5
+seconds. A token is cleared when its two minutes pass, and when `action` or `siteKey` changes, so going from one to
+another and back never shows the old token. `onTokenGenerated` and `onError` run after the field has updated its own
+state and timers, and one that throws is logged with `console.error` and ignored. See
+[Server Actions](server-actions.md) for retries after a refusal.
 
 ## `useRecaptcha`
 

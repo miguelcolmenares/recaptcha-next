@@ -56,7 +56,7 @@ Tests that need a real Google key skip themselves when the keys are missing.
 - `peerDependencies` list only majors that the tests run. Narrow first, widen with evidence.
 - Every subpath must resolve under `node10`, `node16` and `bundler`. `verify:package` checks all three.
 - A dev tool must not cap TypeScript in its peer range. One exception is documented in `.github/dependabot.yml`.
-- A callback prop must never restart an effect. Keep callbacks in refs.
+- A callback prop must never restart an effect. Keep callbacks in refs. A numeric prop that only sets a delay (`refreshIntervalMs`) is read from a ref too. Consumer callbacks run last, after the field's own state and timers are updated, and only through `callSafely`, which logs a throw and never rethrows.
 - Loading a script is not the same as the global being ready. Wait for `grecaptcha.ready`.
 - Never unload Google's script when a component unmounts. Tested with real Google: removing the tag and
   loading it again after a client-side navigation left duplicate badges and extra scripts, and sometimes a
@@ -71,7 +71,7 @@ Tests that need a real Google key skip themselves when the keys are missing.
 ## Tokens and refusals
 
 - A reCAPTCHA token is single use. Google spends it on the first check.
-- `RecaptchaField` renews the token on the `formdata` event, which fires when a submit builds the form's data (a canceled submit does not). `new FormData(form)` fires it too, so it spends the token: read the form once, at submit time. Code that builds its own `FormData` must call `execute()` again before each attempt.
+- `RecaptchaField` renews the token on the `formdata` event, which fires when a submit builds the form's data (a canceled submit does not). `new FormData(form)` fires it too, so it spends the token: read the form once, at submit time. A renewal is asked for only when the input held a token and no request is in flight, and `formdata` from any other form (including a nested one) is ignored. Code that builds its own `FormData` must call `execute()` again before each attempt.
 - On a refusal, log `reason`, `score` and `errorCodes`. They are not secret.
 - Never log the token, and never log the secret key.
 

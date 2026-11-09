@@ -69,8 +69,8 @@ export async function sendMessage(formData: FormData) {
 
 A token works once. When the browser builds the form's data for a submit, `RecaptchaField` asks for a new token,
 so a visitor who was refused can send the form again. A canceled submit renews nothing. Reading the form with
-`new FormData(form)` also renews it, so read it once, at submit time. Outside a `<form>` the field renews on its
-timer only. Older versions
+`new FormData(form)` also renews it, so read it once, at submit time. Only a spent token is renewed: reading an empty
+field, or one with a request in flight, asks for nothing. Outside a `<form>` the field renews on its timer only. Older versions
 need the field to mount again after each server answer: give `<RecaptchaField>` a `key` that changes.
 
 | Reason               | Meaning                                                               |
@@ -103,8 +103,8 @@ for the full table and examples.
 | `lazy`              | `false`                          | Load Google's script only when the form is near the viewport.                                          |
 | `lazyRootMargin`    | `200px`                          | How early lazy loading starts.                                                                         |
 | `refreshIntervalMs` | `90000`                          | Time between token refreshes. Google tokens last two minutes.                                          |
-| `onTokenGenerated`  |                                  | Called with each new token, already in the hidden input. Inline functions are safe.                    |
-| `onError`           |                                  | Called on each failure: the script, a token or a renewal. Failed renewals repeat with a growing delay. |
+| `onTokenGenerated`  |                                  | Called with each new token, already in the hidden input. A throw is logged, not rethrown.              |
+| `onError`           |                                  | Called on each failed script load, token or renewal. Failures are retried, each attempt reported once. |
 
 `useRecaptcha({ action, siteKey?, enabled? })` returns `{ status, error, execute }`.
 Use it to get a fresh token at submit time instead of keeping a hidden input.
