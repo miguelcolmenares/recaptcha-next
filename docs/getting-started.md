@@ -69,6 +69,8 @@ export async function sendMessage(formData: FormData) {
 
 `verifyRecaptcha` never throws. It returns a [result](api-server.md) you can switch on.
 
+A token works once. If the check refuses a submit, the visitor can send the form again, because the field renews its token each time the browser builds the form's data for a submit. See [Server Actions](server-actions.md) for the refusal reasons and what to show the visitor.
+
 ## Next steps
 
 - [Server Actions](server-actions.md) for the full flow with `useActionState`.

@@ -68,6 +68,13 @@ Tests that need a real Google key skip themselves when the keys are missing.
   jobs run on the newest LTS. Node 22 ends on 2027-04-30: drop it from the matrix and from `engines` then. Node 26 became
   LTS on 2026-10-28 and ends on 2029-04-30. Trusted publishing needs npm 11.5.1 or newer, which every Node here ships.
 
+## Tokens and refusals
+
+- A reCAPTCHA token is single use. Google spends it on the first check.
+- `RecaptchaField` renews the token on the `formdata` event, which fires when a submit builds the form's data (a canceled submit does not). `new FormData(form)` fires it too, so it spends the token: read the form once, at submit time. Code that builds its own `FormData` must call `execute()` again before each attempt.
+- On a refusal, log `reason`, `score` and `errorCodes`. They are not secret.
+- Never log the token, and never log the secret key.
+
 ## Commits
 
 Plain messages in the imperative. No attribution trailers.

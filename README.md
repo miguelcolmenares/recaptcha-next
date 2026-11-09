@@ -65,22 +65,46 @@ export async function sendMessage(formData: FormData) {
 }
 ```
 
+## Retry after a refusal
+
+A token works once. When the browser builds the form's data for a submit, `RecaptchaField` asks for a new token,
+so a visitor who was refused can send the form again. A canceled submit renews nothing. Reading the form with
+`new FormData(form)` also renews it, so read it once, at submit time. Outside a `<form>` the field renews on its
+timer only. Older versions
+need the field to mount again after each server answer: give `<RecaptchaField>` a `key` that changes.
+
+| Reason               | Meaning                                                               |
+| -------------------- | --------------------------------------------------------------------- |
+| `low-score`          | Google scored the visit below `minScore` (default `0.5`).             |
+| `rejected-by-google` | Google did not accept the token. `errorCodes` says why.               |
+| `action-mismatch`    | The token was made for another action than `expectedAction`.          |
+| `hostname-mismatch`  | The token was made on another hostname than `expectedHostname`.       |
+| `missing-token`      | The form had no token yet, usually because the script has not loaded. |
+| `missing-secret`     | The server requires `RECAPTCHA_SECRET_KEY` and has none.              |
+| `request-failed`     | The request to Google failed.                                         |
+
+A real visitor can score below the default for a reason on their side: a browser that blocks third-party
+storage, a VPN, or a new browser profile. Log `reason`, `score` and `errorCodes` on a refusal, never the token,
+and tune `minScore` from your own logs. The message `requestStorageAccess: Permission denied` in the console
+comes from Google's iframe and is not the cause of a refusal. See the [server actions guide](https://miguelcolmenares.com/recaptcha-next/docs/server-actions/)
+for the full table and examples.
+
 ## API
 
 ### `recaptcha-next/client`
 
 `<RecaptchaField />` props:
 
-| Prop                | Default                          | Description                                                     |
-| ------------------- | -------------------------------- | --------------------------------------------------------------- |
-| `action`            | required                         | Action name. Check the same name on the server.                 |
-| `siteKey`           | `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` | Public site key. Without a key the field renders nothing.       |
-| `name`              | `g-recaptcha-response`           | Name of the hidden input.                                       |
-| `lazy`              | `false`                          | Load Google's script only when the form is near the viewport.   |
-| `lazyRootMargin`    | `200px`                          | How early lazy loading starts.                                  |
-| `refreshIntervalMs` | `90000`                          | Time between token refreshes. Google tokens last two minutes.   |
-| `onTokenGenerated`  |                                  | Called with each new token. Inline functions are safe.          |
-| `onError`           |                                  | Called when the script fails to load or a token cannot be made. |
+| Prop                | Default                          | Description                                                                                            |
+| ------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `action`            | required                         | Action name. Check the same name on the server.                                                        |
+| `siteKey`           | `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` | Public site key. Without a key the field renders nothing.                                              |
+| `name`              | `g-recaptcha-response`           | Name of the hidden input.                                                                              |
+| `lazy`              | `false`                          | Load Google's script only when the form is near the viewport.                                          |
+| `lazyRootMargin`    | `200px`                          | How early lazy loading starts.                                                                         |
+| `refreshIntervalMs` | `90000`                          | Time between token refreshes. Google tokens last two minutes.                                          |
+| `onTokenGenerated`  |                                  | Called with each new token. Inline functions are safe.                                                 |
+| `onError`           |                                  | Called on each failure: the script, a token or a renewal. Failed renewals repeat with a growing delay. |
 
 `useRecaptcha({ action, siteKey?, enabled? })` returns `{ status, error, execute }`.
 Use it to get a fresh token at submit time instead of keeping a hidden input.

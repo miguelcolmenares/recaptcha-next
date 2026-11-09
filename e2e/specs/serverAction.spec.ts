@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { hasRealKeys, result, stubGoogle, tokenInput } from "./support";
+import { GOOGLE_SCRIPT, hasRealKeys, result, stubGoogle, tokenInput } from "./support";
 
 const TOKEN_TIMEOUT = 20_000;
 
@@ -84,5 +84,33 @@ test.describe("Server Action with a stubbed Google script", () => {
     await page.getByRole("button", { name: "Send programmatically" }).click();
 
     expect(await submitState(page)).toMatchObject({ tokenReceived: true, success: false });
+  });
+});
+
+// Each token from this stub is new, so the test can tell a renewed token from the spent one.
+test.describe("Retry after a refused submit, with a numbered stub", () => {
+  test("the field asks for a new token after each refused submit", async ({ page }) => {
+    await page.route(GOOGLE_SCRIPT, (route) =>
+      route.fulfill({
+        contentType: "application/javascript",
+        body: `(function () {
+          var issued = 0;
+          window.grecaptcha = {
+            ready: function (cb) { cb(); },
+            execute: function () { issued += 1; return Promise.resolve("stub-token:" + issued); }
+          };
+        })();`,
+      }),
+    );
+
+    await page.goto("/");
+    await expect(tokenInput(page)).toHaveValue("stub-token:1");
+    await page.getByRole("button", { name: "Send" }).click();
+    expect(await submitState(page)).toMatchObject({ tokenReceived: true, success: false });
+    await expect(tokenInput(page)).not.toHaveValue("stub-token:1");
+
+    const second = await tokenInput(page).inputValue();
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(tokenInput(page)).not.toHaveValue(second);
   });
 });
