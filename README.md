@@ -67,8 +67,10 @@ export async function sendMessage(formData: FormData) {
 
 ## Retry after a refusal
 
-A token works once. After every submit of the form, `RecaptchaField` asks for a new token, so a visitor who
-was refused can send the form again. Outside a `<form>` the field renews on its timer only. Older versions
+A token works once. When the browser builds the form's data for a submit, `RecaptchaField` asks for a new token,
+so a visitor who was refused can send the form again. A canceled submit renews nothing. Reading the form with
+`new FormData(form)` also renews it, so read it once, at submit time. Outside a `<form>` the field renews on its
+timer only. Older versions
 need the field to mount again after each server answer: give `<RecaptchaField>` a `key` that changes.
 
 | Reason               | Meaning                                                               |

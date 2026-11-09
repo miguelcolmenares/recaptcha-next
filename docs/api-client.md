@@ -21,9 +21,11 @@ Renders a hidden input and keeps a fresh token in it.
 | `onTokenGenerated`  |                                  | Called with each new token. Inline functions are safe.          |
 | `onError`           |                                  | Called when the script fails to load or a token cannot be made. |
 
-A token works once. After each submit of the form that contains the field, the field asks for a new token,
-and the timer keeps renewing it. A field outside a `<form>` renews on the timer only. See
-[Server Actions](server-actions.md) for retries after a refusal.
+A token works once. When the browser builds the form's data for a submit (the `formdata` event), the field asks for a
+new token, and the timer keeps renewing it. A canceled submit renews nothing. Reading the form with
+`new FormData(form)` also renews it, so read it once, at submit time. A field outside a `<form>` renews on the timer
+only. A failed token request is retried after 5 seconds, then after 10, 20 and 30 seconds, and a token is cleared when
+its two minutes pass. See [Server Actions](server-actions.md) for retries after a refusal.
 
 ## `useRecaptcha`
 

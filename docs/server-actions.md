@@ -60,7 +60,9 @@ Google returns the action and the hostname the token was made for. Pass `expecte
 
 A token works once. Google spends it on the first check, so a second check with the same token is refused. Google reports that as `rejected-by-google`, and the usual code is `timeout-or-duplicate`.
 
-After every submit of the form it is in, `RecaptchaField` asks for a new token. The new one is ready a moment later, so a visitor who was refused can send the form again without reloading the page. The timer still renews the token every 90 seconds. A field outside a `<form>` renews on the timer only.
+When the browser builds the form's data for a submit, `RecaptchaField` asks for a new token. The new one is ready a moment later, so a visitor who was refused can send the form again without reloading the page. A canceled submit, such as one stopped by validation, renews nothing. The timer still renews the token every 90 seconds. A field outside a `<form>` renews on the timer only.
+
+Reading the form with `new FormData(form)` also fires that event, so it renews the token too, and the token in that `FormData` is the one that was spent. Read the form once, at submit time, and send that same `FormData`. A `FormData` built later, after the renewal, carries the new token, but the first one is no longer valid.
 
 A version without this renewal needs the field to mount again after each server answer. Change its `key`, and the field asks for a new token:
 
