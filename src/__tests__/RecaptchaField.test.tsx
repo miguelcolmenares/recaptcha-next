@@ -164,6 +164,182 @@ describe("RecaptchaField", () => {
     });
   });
 
+  describe("every submit path", () => {
+    /** Mounts the field in a form with a fresh token per call: token-1, token-2, ... */
+    async function mountInForm() {
+      let issued = 0;
+      execute.mockImplementation(async () => `token-${++issued}`);
+      const utils = render(
+        <form>
+          <RecaptchaField action="contact" siteKey={site} />
+          <button type="submit">Send</button>
+        </form>,
+      );
+      const form = utils.container.querySelector("form") as HTMLFormElement;
+      // Stop jsdom from trying to navigate. A canceled submit also skips its "not implemented" log.
+      form.addEventListener("submit", (event) => event.preventDefault());
+      await finishScriptLoad();
+      await waitFor(() => expect(hiddenInput(utils.container)?.value).toBe("token-1"));
+      return { ...utils, form, value: () => hiddenInput(utils.container)?.value };
+    }
+
+    /** Lets the renewal, scheduled with a timeout of 0, and any follow-up run. */
+    const settle = () =>
+      act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+
+    const fire = (target: EventTarget, type: string) =>
+      act(async () => {
+        target.dispatchEvent(new Event(type, { cancelable: true }));
+      });
+
+    it("(a) a click on a submit button renews once, after submit and formdata", async () => {
+      const { form, value, getByRole } = await mountInForm();
+
+      await act(async () => {
+        getByRole("button", { name: "Send" }).click();
+      });
+      // jsdom fires submit on a click but not formdata, so formdata is sent here in the browser's order.
+      await fire(form, "formdata");
+      await waitFor(() => expect(value()).toBe("token-2"));
+      await settle();
+
+      expect(execute).toHaveBeenCalledTimes(2);
+      expect(value()).toBe("token-2");
+    });
+
+    it("(b) form.requestSubmit() renews once, after submit and formdata", async () => {
+      const { form, value } = await mountInForm();
+
+      await act(async () => form.requestSubmit());
+      await fire(form, "formdata");
+      await waitFor(() => expect(value()).toBe("token-2"));
+      await settle();
+
+      expect(execute).toHaveBeenCalledTimes(2);
+    });
+
+    it("(c) form.submit() fires only formdata and still renews once", async () => {
+      const { form, value } = await mountInForm();
+
+      await fire(form, "formdata");
+      await waitFor(() => expect(value()).toBe("token-2"));
+      await settle();
+
+      expect(execute).toHaveBeenCalledTimes(2);
+    });
+
+    it("(d) a Server Action style submit with only formdata renews once, and the new token is in the next FormData", async () => {
+      const { form, value } = await mountInForm();
+
+      // A Server Action reads the FormData carried by the formdata event.
+      const formData = new FormData(form);
+      await act(async () => {
+        form.dispatchEvent(Object.assign(new Event("formdata"), { formData }));
+      });
+      await waitFor(() => expect(value()).toBe("token-2"));
+      await settle();
+
+      expect(execute).toHaveBeenCalledTimes(2);
+      expect(new FormData(form).get("g-recaptcha-response")).toBe("token-2");
+    });
+
+    it("(e) two submits one after the other renew once each", async () => {
+      const { form, value } = await mountInForm();
+
+      await fire(form, "submit");
+      await fire(form, "formdata");
+      await waitFor(() => expect(value()).toBe("token-2"));
+      await settle();
+
+      await fire(form, "submit");
+      await fire(form, "formdata");
+      await waitFor(() => expect(value()).toBe("token-3"));
+      await settle();
+
+      expect(execute).toHaveBeenCalledTimes(3);
+    });
+
+    it("(f) a submit while a renewal is in flight asks for one more token afterwards", async () => {
+      const { form, value } = await mountInForm();
+      // The first submit's renewal stays pending until the test resolves it.
+      let resolveSecond!: (token: string) => void;
+      execute
+        .mockImplementationOnce(() => new Promise<string>((resolve) => (resolveSecond = resolve)))
+        .mockImplementationOnce(async () => "token-3");
+
+      await fire(form, "submit");
+      await fire(form, "formdata");
+      await settle();
+      expect(execute).toHaveBeenCalledTimes(2);
+
+      // A second submit arrives while that request is still open.
+      await fire(form, "submit");
+      await fire(form, "formdata");
+      await settle();
+      expect(execute).toHaveBeenCalledTimes(2);
+
+      await act(async () => resolveSecond("token-2"));
+      await waitFor(() => expect(value()).toBe("token-3"));
+      await settle();
+
+      expect(execute).toHaveBeenCalledTimes(3);
+      expect(value()).toBe("token-3");
+    });
+
+    it("(g) a submit of another form on the page does not renew", async () => {
+      let issued = 0;
+      execute.mockImplementation(async () => `token-${++issued}`);
+      const { container } = render(
+        <>
+          <form data-testid="field-form">
+            <RecaptchaField action="contact" siteKey={site} />
+          </form>
+          <form data-testid="other-form">
+            <button type="submit">Other</button>
+          </form>
+        </>,
+      );
+      await finishScriptLoad();
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-1"));
+
+      const other = screen.getByTestId("other-form");
+      await fire(other, "submit");
+      await fire(other, "formdata");
+      await settle();
+
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(hiddenInput(container)?.value).toBe("token-1");
+    });
+
+    it("(h) removes its submit and formdata listeners on unmount", async () => {
+      // A submit after unmount does not renew even if a handler were left behind, because the
+      // hook's execute is cleared too. So the test checks the listeners themselves.
+      const add = jest.spyOn(HTMLFormElement.prototype, "addEventListener");
+      const remove = jest.spyOn(HTMLFormElement.prototype, "removeEventListener");
+      try {
+        const { container, unmount } = render(
+          <form>
+            <RecaptchaField action="contact" siteKey={site} />
+          </form>,
+        );
+        await finishScriptLoad();
+        await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-1"));
+
+        const added = add.mock.calls.filter(([type]) => type === "submit" || type === "formdata");
+        expect(added).toHaveLength(2);
+        unmount();
+        for (const [type, handler] of added) {
+          expect(remove).toHaveBeenCalledWith(type, handler);
+        }
+      } finally {
+        add.mockRestore();
+        remove.mockRestore();
+      }
+    });
+  });
+
   it("calls onError when the script fails to load", async () => {
     const onError = jest.fn();
     render(<RecaptchaField action="a" siteKey={site} onError={onError} />);
