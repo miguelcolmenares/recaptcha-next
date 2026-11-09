@@ -102,7 +102,9 @@ export function RecaptchaField({
   });
 
   useEffect(() => {
-    if (!lazy || visible) return;
+    // Without a site key nothing is rendered, so there is no anchor to watch. Wait for the key,
+    // rather than treating the missing anchor as a reason to load at once.
+    if (!lazy || visible || !siteKey) return;
     const anchor = anchorRef.current;
     const form = anchor?.closest("form") ?? null;
     const target = form ?? anchor?.parentElement ?? anchor;
@@ -131,7 +133,7 @@ export function RecaptchaField({
       form?.removeEventListener("submit", show);
       form?.removeEventListener("formdata", show);
     };
-  }, [lazy, visible, lazyRootMargin]);
+  }, [lazy, visible, lazyRootMargin, siteKey]);
 
   const { status, error, execute } = useRecaptcha({ action, siteKey, enabled: visible });
 

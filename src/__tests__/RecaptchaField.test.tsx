@@ -1198,6 +1198,40 @@ describe("RecaptchaField", () => {
       await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-1"));
     });
 
+    it("a site key that arrives after mount is still loaded lazily", async () => {
+      (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver =
+        FakeIntersectionObserver;
+      const saved = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
+      delete process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
+      try {
+        const { container, rerender } = render(
+          <form>
+            <RecaptchaField action="a" lazy />
+          </form>,
+        );
+        expect(scripts()).toHaveLength(0);
+
+        // The key arrives (a prop that was not ready at mount). The field has not been seen yet.
+        rerender(
+          <form>
+            <RecaptchaField action="a" siteKey={site} lazy />
+          </form>,
+        );
+        await tick();
+        expect(scripts()).toHaveLength(0);
+        expect(FakeIntersectionObserver.instances.at(-1)?.observed[0]).toBe(
+          container.querySelector("form"),
+        );
+
+        await act(async () => FakeIntersectionObserver.instances.at(-1)?.show());
+        await finishScriptLoad();
+        await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-1"));
+      } finally {
+        if (saved === undefined) delete process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
+        else process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY = saved;
+      }
+    });
+
     it("a submit before the field is visible loads the script, so the next submit has a token", async () => {
       (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver =
         FakeIntersectionObserver;
