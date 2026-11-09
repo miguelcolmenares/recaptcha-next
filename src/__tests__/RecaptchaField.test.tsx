@@ -1321,11 +1321,11 @@ describe("RecaptchaField", () => {
 
     it("an onError that throws for a failed script load does not reach an error boundary", async () => {
       class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> {
-        state = { failed: false };
+        override state = { failed: false };
         static getDerivedStateFromError() {
           return { failed: true };
         }
-        render() {
+        override render() {
           return this.state.failed ? <p>boundary</p> : this.props.children;
         }
       }
@@ -1615,6 +1615,144 @@ describe("RecaptchaField", () => {
       await tick();
 
       expect(hiddenInput(container)?.value).toBe("");
+    });
+  });
+  describe("a script that fails to load", () => {
+    const scriptFor = (key: string) =>
+      document.head.querySelector(`script[src$="render=${encodeURIComponent(key)}"]`);
+
+    /** Plays Google failing: the tag for this key reports an error. */
+    async function failScriptFor(key: string) {
+      await waitFor(() => expect(scriptFor(key)).not.toBeNull());
+      await act(async () => {
+        scriptFor(key)?.dispatchEvent(new Event("error"));
+      });
+      await tick();
+    }
+
+    it("is loaded again after 5, 10, 20 and then 30 seconds, and each failure is reported once", async () => {
+      jest.useFakeTimers();
+      const onError = jest.fn();
+      render(<RecaptchaField action="a" siteKey={site} onError={onError} />);
+
+      await failScriptFor(site);
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(scriptFor(site)).toBeNull();
+
+      const waits = [5_000, 10_000, 20_000, 30_000, 30_000];
+      for (const [index, wait] of waits.entries()) {
+        await advance(wait - 1);
+        expect(scriptFor(site)).toBeNull();
+        await advance(1);
+        expect(scriptFor(site)).not.toBeNull();
+        await failScriptFor(site);
+        expect(onError).toHaveBeenCalledTimes(index + 2);
+      }
+    });
+
+    it("recovers when a retry succeeds: the token arrives and no more loads are tried", async () => {
+      jest.useFakeTimers();
+      const { container } = render(<RecaptchaField action="a" siteKey={site} />);
+      await failScriptFor(site);
+
+      await advance(5_000);
+      await finishScriptLoadFor(site);
+      await tick();
+
+      expect(hiddenInput(container)?.value).toBe("token-1");
+      await advance(60_000);
+      expect(scripts()).toHaveLength(1);
+    });
+
+    it("stops retrying when the field unmounts", async () => {
+      jest.useFakeTimers();
+      const { unmount } = render(<RecaptchaField action="a" siteKey={site} />);
+      await failScriptFor(site);
+
+      unmount();
+      await advance(120_000);
+
+      expect(scriptFor(site)).toBeNull();
+    });
+
+    it("stops retrying the old key when the key changes, and the new key starts again at 5 seconds", async () => {
+      jest.useFakeTimers();
+      const otherSite = `${site}-other`;
+      const { rerender } = render(<RecaptchaField action="a" siteKey={site} />);
+      await failScriptFor(site);
+      await advance(5_000);
+      await failScriptFor(site); // the next wait for this key is 20 s
+
+      rerender(<RecaptchaField action="a" siteKey={otherSite} />);
+      await failScriptFor(otherSite);
+      await advance(4_999);
+      expect(scriptFor(otherSite)).toBeNull();
+      await advance(1);
+      expect(scriptFor(otherSite)).not.toBeNull();
+
+      // Nothing tries the first key again while the field has the new one.
+      await failScriptFor(otherSite);
+      await advance(10_000);
+      expect(scriptFor(site)).toBeNull();
+    });
+
+    it("a retry that was waiting for the old key does not restart the new key once it has loaded", async () => {
+      jest.useFakeTimers();
+      const otherSite = `${site}-other`;
+      const { container, rerender } = render(<RecaptchaField action="a" siteKey={site} />);
+      await failScriptFor(site);
+      await advance(5_000);
+      await failScriptFor(site); // the next try for this key is 20 s away
+
+      rerender(<RecaptchaField action="a" siteKey={otherSite} />);
+      await finishScriptLoadFor(otherSite);
+      await tick();
+      expect(hiddenInput(container)?.value).toBe("token-1");
+
+      await advance(25_000);
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(hiddenInput(container)?.value).toBe("token-1");
+    });
+
+    it("starts over at 5 seconds when the key comes back after a failure", async () => {
+      jest.useFakeTimers();
+      const otherSite = `${site}-other`;
+      const onError = jest.fn();
+      const { rerender } = render(<RecaptchaField action="a" siteKey={site} onError={onError} />);
+      await failScriptFor(site);
+      await advance(5_000);
+      await failScriptFor(site);
+      expect(onError).toHaveBeenCalledTimes(2);
+
+      rerender(<RecaptchaField action="a" siteKey={otherSite} onError={onError} />);
+      await waitFor(() => expect(scriptFor(otherSite)).not.toBeNull());
+      rerender(<RecaptchaField action="a" siteKey={site} onError={onError} />);
+      // A new load starts at once for the key that comes back, and it is not reported as failed.
+      await waitFor(() => expect(scriptFor(site)).not.toBeNull());
+      expect(onError).toHaveBeenCalledTimes(2);
+
+      await failScriptFor(site);
+      expect(onError).toHaveBeenCalledTimes(3);
+      await advance(4_999);
+      expect(scriptFor(site)).toBeNull();
+      await advance(1);
+      expect(scriptFor(site)).not.toBeNull();
+    });
+
+    it("A to B to A does not report A's old failure again while its new load is pending", async () => {
+      const otherSite = `${site}-other`;
+      const onError = jest.fn();
+      const { rerender } = render(<RecaptchaField action="a" siteKey={site} onError={onError} />);
+      await failScriptFor(site);
+      expect(onError).toHaveBeenCalledTimes(1);
+
+      rerender(<RecaptchaField action="a" siteKey={otherSite} onError={onError} />);
+      await waitFor(() => expect(scriptFor(otherSite)).not.toBeNull());
+      rerender(<RecaptchaField action="a" siteKey={site} onError={onError} />);
+      await waitFor(() => expect(scriptFor(site)).not.toBeNull());
+      await tick();
+
+      expect(onError).toHaveBeenCalledTimes(1);
     });
   });
 });
