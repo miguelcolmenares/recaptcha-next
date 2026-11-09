@@ -22,6 +22,17 @@ async function finishScriptLoad() {
   });
 }
 
+/** Plays Google for a site key other than the first, whose script is a separate tag. */
+async function finishScriptLoadFor(key: string) {
+  const selector = `script[src*="render=${encodeURIComponent(key)}"]`;
+  await waitFor(() => expect(document.head.querySelector(selector)).not.toBeNull());
+  await act(async () => {
+    const api: Grecaptcha = { ready: (cb) => cb(), execute: execute as Grecaptcha["execute"] };
+    window.grecaptcha = api;
+    document.head.querySelector(selector)?.dispatchEvent(new Event("load"));
+  });
+}
+
 class FakeIntersectionObserver {
   static instances: FakeIntersectionObserver[] = [];
   observed: Element[] = [];
@@ -397,22 +408,6 @@ describe("RecaptchaField", () => {
       );
     };
 
-    /** Plays Google for a second site key, whose script is a separate tag. */
-    async function finishScriptLoadFor(key: string) {
-      await waitFor(() =>
-        expect(
-          document.head.querySelector(`script[src*="render=${encodeURIComponent(key)}"]`),
-        ).not.toBeNull(),
-      );
-      await act(async () => {
-        const api: Grecaptcha = { ready: (cb) => cb(), execute: execute as Grecaptcha["execute"] };
-        window.grecaptcha = api;
-        document.head
-          .querySelector(`script[src*="render=${encodeURIComponent(key)}"]`)
-          ?.dispatchEvent(new Event("load"));
-      });
-    }
-
     const fire = (target: EventTarget, type: string) =>
       act(async () => {
         target.dispatchEvent(new Event(type, { cancelable: true }));
@@ -562,6 +557,88 @@ describe("RecaptchaField", () => {
       expect(hiddenInput(container)?.value).toBe(newToken);
       expect(onTokenGenerated).not.toHaveBeenCalledWith("token-login-stale");
       expect(onTokenGenerated).toHaveBeenLastCalledWith(newToken);
+    });
+  });
+
+  describe("execute call count", () => {
+    let issued = 0;
+
+    /** Every call gets a new token, so a change in the field shows which call produced it. */
+    beforeEach(() => {
+      issued = 0;
+      execute.mockImplementation(async () => `token-${++issued}`);
+    });
+
+    const settle = () =>
+      act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+
+    const fire = (target: EventTarget, type: string) =>
+      act(async () => {
+        target.dispatchEvent(new Event(type, { cancelable: true }));
+      });
+
+    it("(a) first mount calls execute exactly once", async () => {
+      const { container } = render(<RecaptchaField action="login" siteKey={site} />);
+      await finishScriptLoad();
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-1"));
+      await settle();
+
+      expect(execute).toHaveBeenCalledTimes(1);
+    });
+
+    it("(b) an action change on a loaded field calls execute exactly once more", async () => {
+      const { container, rerender } = render(<RecaptchaField action="login" siteKey={site} />);
+      await finishScriptLoad();
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-1"));
+      await settle();
+      expect(execute).toHaveBeenCalledTimes(1);
+
+      rerender(<RecaptchaField action="checkout" siteKey={site} />);
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-2"));
+      await settle();
+
+      expect(execute).toHaveBeenCalledTimes(2);
+      expect(execute).toHaveBeenLastCalledWith(site, { action: "checkout" });
+    });
+
+    it("(c) a siteKey change on a loaded field calls execute exactly once more", async () => {
+      const otherSite = `${site}-other`;
+      const { container, rerender } = render(<RecaptchaField action="login" siteKey={site} />);
+      await finishScriptLoad();
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-1"));
+      await settle();
+      expect(execute).toHaveBeenCalledTimes(1);
+
+      rerender(<RecaptchaField action="login" siteKey={otherSite} />);
+      await finishScriptLoadFor(otherSite);
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-2"));
+      await settle();
+
+      expect(execute).toHaveBeenCalledTimes(2);
+      expect(execute).toHaveBeenLastCalledWith(otherSite, { action: "login" });
+    });
+
+    it("(d) a submit calls execute exactly once more", async () => {
+      const { container } = render(
+        <form>
+          <RecaptchaField action="contact" siteKey={site} />
+        </form>,
+      );
+      await finishScriptLoad();
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-1"));
+      await settle();
+      expect(execute).toHaveBeenCalledTimes(1);
+
+      const form = container.querySelector("form") as HTMLFormElement;
+      form.addEventListener("submit", (event) => event.preventDefault());
+      await fire(form, "submit");
+      await fire(form, "formdata");
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-2"));
+      await settle();
+
+      expect(execute).toHaveBeenCalledTimes(2);
     });
   });
 
