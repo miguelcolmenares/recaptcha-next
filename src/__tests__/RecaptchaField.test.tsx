@@ -386,6 +386,185 @@ describe("RecaptchaField", () => {
     expect(scripts()).toHaveLength(1);
   });
 
+  describe("when action or siteKey changes while a request is in flight", () => {
+    let issued = 0;
+
+    /** Each token names its action and the call number, so a stale one is easy to spot. */
+    const tokensNamedByAction = () => {
+      issued = 0;
+      execute.mockImplementation(
+        async (_key: string, options: { action: string }) => `token-${options.action}-${++issued}`,
+      );
+    };
+
+    /** Plays Google for a second site key, whose script is a separate tag. */
+    async function finishScriptLoadFor(key: string) {
+      await waitFor(() =>
+        expect(
+          document.head.querySelector(`script[src*="render=${encodeURIComponent(key)}"]`),
+        ).not.toBeNull(),
+      );
+      await act(async () => {
+        const api: Grecaptcha = { ready: (cb) => cb(), execute: execute as Grecaptcha["execute"] };
+        window.grecaptcha = api;
+        document.head
+          .querySelector(`script[src*="render=${encodeURIComponent(key)}"]`)
+          ?.dispatchEvent(new Event("load"));
+      });
+    }
+
+    const fire = (target: EventTarget, type: string) =>
+      act(async () => {
+        target.dispatchEvent(new Event(type, { cancelable: true }));
+      });
+
+    const settle = () =>
+      act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+
+    /** A form that holds the field, so a submit can start a renewal that stays in flight. */
+    const formWith = (action: string, key: string) => (
+      <form>
+        <RecaptchaField action={action} siteKey={key} />
+      </form>
+    );
+
+    /** Makes the next execute call wait until the test resolves it. */
+    function holdNextCall() {
+      let resolve!: (token: string) => void;
+      execute.mockImplementationOnce(
+        () =>
+          new Promise<string>((done) => {
+            resolve = done;
+          }),
+      );
+      return (token: string) => resolve(token);
+    }
+
+    it("(a) gets a token made with the new action, not the one in flight", async () => {
+      tokensNamedByAction();
+      const { container, rerender } = render(formWith("login", site));
+      await finishScriptLoad();
+      await waitFor(() => expect(hiddenInput(container)?.value).toMatch(/^token-login-/));
+
+      const resolveStale = holdNextCall();
+      const form = container.querySelector("form") as HTMLFormElement;
+      await fire(form, "submit");
+      await fire(form, "formdata");
+      await settle();
+      expect(execute).toHaveBeenLastCalledWith(site, { action: "login" });
+
+      rerender(formWith("checkout", site));
+      await waitFor(() => expect(hiddenInput(container)?.value).toMatch(/^token-checkout-/));
+      expect(execute).toHaveBeenLastCalledWith(site, { action: "checkout" });
+
+      // The old request finishes late. Its token is for "login" and must not land in the field.
+      await act(async () => resolveStale("token-login-stale"));
+      await settle();
+      expect(hiddenInput(container)?.value).toMatch(/^token-checkout-/);
+    });
+
+    it("(b) gets a token made with the new site key, not the one in flight", async () => {
+      const otherSite = `${site}-other`;
+      tokensNamedByAction();
+      const { container, rerender } = render(formWith("login", site));
+      await finishScriptLoad();
+      await waitFor(() => expect(hiddenInput(container)?.value).toMatch(/^token-login-/));
+
+      const resolveStale = holdNextCall();
+      const form = container.querySelector("form") as HTMLFormElement;
+      await fire(form, "submit");
+      await fire(form, "formdata");
+      await settle();
+
+      rerender(formWith("login", otherSite));
+      await finishScriptLoadFor(otherSite);
+      await waitFor(() => expect(hiddenInput(container)?.value).toMatch(/^token-login-/));
+      expect(execute).toHaveBeenLastCalledWith(otherSite, { action: "login" });
+      const fresh = hiddenInput(container)?.value;
+
+      await act(async () => resolveStale("token-stale-old-key"));
+      await settle();
+      expect(hiddenInput(container)?.value).toBe(fresh);
+    });
+
+    it("(c) never exposes the old action's token while the new one is pending", async () => {
+      tokensNamedByAction();
+      const { container, rerender } = render(formWith("login", site));
+      await finishScriptLoad();
+      await waitFor(() => expect(hiddenInput(container)?.value).toMatch(/^token-login-/));
+
+      // The new action's token takes a while, so a submit lands in that gap.
+      let resolveNew!: (token: string) => void;
+      execute.mockImplementationOnce(
+        () =>
+          new Promise<string>((done) => {
+            resolveNew = done;
+          }),
+      );
+      rerender(formWith("checkout", site));
+      await settle();
+
+      expect(hiddenInput(container)?.value).not.toMatch(/^token-login-/);
+      const form = container.querySelector("form") as HTMLFormElement;
+      expect(new FormData(form).get("g-recaptcha-response")).not.toMatch(/^token-login-/);
+
+      await act(async () => resolveNew("token-checkout-new"));
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-checkout-new"));
+    });
+
+    it("(c) a submit after the new action's token arrives sends a token for that action", async () => {
+      tokensNamedByAction();
+      const { container, rerender } = render(formWith("login", site));
+      await finishScriptLoad();
+      await waitFor(() => expect(hiddenInput(container)?.value).toMatch(/^token-login-/));
+
+      rerender(formWith("checkout", site));
+      await waitFor(() => expect(hiddenInput(container)?.value).toMatch(/^token-checkout-/));
+
+      const form = container.querySelector("form") as HTMLFormElement;
+      await fire(form, "submit");
+      await fire(form, "formdata");
+      await waitFor(() => expect(hiddenInput(container)?.value).toMatch(/^token-checkout-/));
+      await settle();
+      expect(execute).toHaveBeenLastCalledWith(site, { action: "checkout" });
+      expect(new FormData(form).get("g-recaptcha-response")).toMatch(/^token-checkout-/);
+    });
+
+    it("(d) an old request that resolves after the change does not overwrite the new token", async () => {
+      tokensNamedByAction();
+      const onTokenGenerated = jest.fn();
+      const { container, rerender } = render(
+        <form>
+          <RecaptchaField action="login" siteKey={site} onTokenGenerated={onTokenGenerated} />
+        </form>,
+      );
+      await finishScriptLoad();
+      await waitFor(() => expect(hiddenInput(container)?.value).toMatch(/^token-login-/));
+      const resolveStale = holdNextCall();
+      const form = container.querySelector("form") as HTMLFormElement;
+      await fire(form, "submit");
+      await fire(form, "formdata");
+      await settle();
+
+      rerender(
+        <form>
+          <RecaptchaField action="checkout" siteKey={site} onTokenGenerated={onTokenGenerated} />
+        </form>,
+      );
+      await waitFor(() => expect(hiddenInput(container)?.value).toMatch(/^token-checkout-/));
+      const newToken = hiddenInput(container)?.value;
+
+      await act(async () => resolveStale("token-login-stale"));
+      await settle();
+
+      expect(hiddenInput(container)?.value).toBe(newToken);
+      expect(onTokenGenerated).not.toHaveBeenCalledWith("token-login-stale");
+      expect(onTokenGenerated).toHaveBeenLastCalledWith(newToken);
+    });
+  });
+
   describe("lazy mode", () => {
     it("loads nothing until the form becomes visible, then produces a token", async () => {
       (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver =

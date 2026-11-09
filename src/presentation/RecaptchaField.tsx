@@ -24,7 +24,11 @@ export interface RecaptchaFieldProps {
 
 const DEFAULT_REFRESH_MS = TOKEN_TTL_MS - TOKEN_REFRESH_MARGIN_MS;
 
-/** Renders a hidden input that always holds a valid token. Renders nothing without a site key. */
+/**
+ * Renders a hidden input that holds a token for the current action and site key. It is empty
+ * until the first token arrives, and again after a change until the new token arrives.
+ * Renders nothing without a site key.
+ */
 export function RecaptchaField({
   action,
   siteKey: siteKeyProp,
@@ -38,7 +42,11 @@ export function RecaptchaField({
   const siteKey = siteKeyProp ?? readSiteKey();
   const anchorRef = useRef<HTMLSpanElement>(null);
   const [visible, setVisible] = useState(!lazy);
-  const [token, setToken] = useState("");
+  // A token is only shown for the action and site key it was made with, so a change
+  // leaves the field empty until the new token arrives, never with the old action's token.
+  const tokenKey = `${siteKey}\n${action}`;
+  const [issued, setIssued] = useState<{ key: string; value: string } | null>(null);
+  const token = issued?.key === tokenKey ? issued.value : "";
 
   // Callbacks live in refs, so a new function identity on each render
   // cannot restart the token effect.
@@ -97,7 +105,7 @@ export function RecaptchaField({
       try {
         const next = await execute();
         if (cancelled) return;
-        setToken(next);
+        setIssued({ key: tokenKey, value: next });
         onTokenRef.current?.(next);
         renewed = true;
       } catch (cause) {
@@ -138,7 +146,7 @@ export function RecaptchaField({
       form?.removeEventListener("submit", requestRenewal);
       form?.removeEventListener("formdata", requestRenewal);
     };
-  }, [status, execute, refreshIntervalMs]);
+  }, [status, execute, refreshIntervalMs, tokenKey]);
 
   if (!siteKey) return null;
 
