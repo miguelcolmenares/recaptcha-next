@@ -538,6 +538,49 @@ describe("RecaptchaField", () => {
       await act(async () => resolveRenewal("token-2"));
       await waitFor(() => expect(value()).toBe("token-2"));
     });
+
+    it("(e) a renewal in flight that resolves after formdata keeps its new token", async () => {
+      jest.useFakeTimers();
+      const utils = render(
+        <form>
+          <RecaptchaField action="contact" siteKey={site} refreshIntervalMs={1000} />
+        </form>,
+      );
+      const form = utils.container.querySelector("form") as HTMLFormElement;
+      const value = () => hiddenInput(utils.container)?.value;
+      execute.mockResolvedValueOnce("token-1");
+      await finishScriptLoad();
+      await tick();
+      expect(value()).toBe("token-1");
+
+      // The timer starts a renewal, and the answer is held.
+      let resolveTimerRenewal!: (token: string) => void;
+      execute.mockImplementationOnce(
+        () => new Promise<string>((resolve) => (resolveTimerRenewal = resolve)),
+      );
+      await advance(1000);
+      expect(execute).toHaveBeenCalledTimes(2);
+
+      // The form is read while that renewal is in flight. token-1 is what it serialized.
+      let formData!: FormData;
+      await act(async () => {
+        formData = new FormData(form);
+        form.dispatchEvent(Object.assign(new Event("formdata"), { formData }));
+      });
+      expect(formData.get("g-recaptcha-response")).toBe("token-1");
+
+      // The renewal answers after formdata, before the zero-delay task of that submit.
+      await act(async () => resolveTimerRenewal("token-2"));
+      await tick();
+      expect(value()).toBe("token-2");
+
+      // The zero-delay task runs and starts one more request, held here. token-2 was never
+      // serialized, so it stays in the field, and a retry sends it, while that request is pending.
+      execute.mockImplementationOnce(() => new Promise<string>(() => {}));
+      await advance(0);
+      expect(execute).toHaveBeenCalledTimes(3);
+      expect(value()).toBe("token-2");
+    });
   });
 
   describe("token failures, expiry and the timeout", () => {
