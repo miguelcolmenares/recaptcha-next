@@ -92,9 +92,13 @@ export function RecaptchaField({
   // cannot restart the token effect.
   const onTokenRef = useRef(onTokenGenerated);
   const onErrorRef = useRef(onError);
+  // The interval is read each time a refresh is scheduled, so changing it never restarts the
+  // token effect or asks for a token nobody wanted.
+  const refreshIntervalRef = useRef(refreshIntervalMs);
   useEffect(() => {
     onTokenRef.current = onTokenGenerated;
     onErrorRef.current = onError;
+    refreshIntervalRef.current = refreshIntervalMs;
   });
 
   useEffect(() => {
@@ -146,15 +150,13 @@ export function RecaptchaField({
     // Drops the token when its TTL passes. Cleared whenever the token is replaced or spent.
     let expiry: ReturnType<typeof setTimeout> | undefined;
     let inFlight = false;
-    let renewAgain = false;
+    // Counts the tokens issued, so a renewal task can tell that one arrived after the read.
+    let issuedCount = 0;
     let failures = 0;
 
     const refresh = async () => {
-      // One request at a time. A submit that arrives meanwhile asks for one more afterwards.
-      if (inFlight) {
-        renewAgain = true;
-        return;
-      }
+      // One request at a time.
+      if (inFlight) return;
       inFlight = true;
       clearTimeout(timer);
       let next = "";
@@ -179,9 +181,11 @@ export function RecaptchaField({
         // value, so the render that follows changes nothing.
         if (inputRef.current) inputRef.current.value = next;
         setIssued({ key: tokenKey, value: next });
+        issuedCount += 1;
         clearTimeout(expiry);
         expiry = setTimeout(() => {
           // Clear only the token that was issued here, never a newer one.
+          if (inputRef.current?.value === next) inputRef.current.value = "";
           setIssued((current) =>
             current?.key === tokenKey && current.value === next ? null : current,
           );
@@ -189,11 +193,8 @@ export function RecaptchaField({
       } else {
         failures += 1;
       }
-      if (renewAgain) {
-        renewAgain = false;
-        void refresh();
-      } else if (failure === undefined) {
-        timer = setTimeout(refresh, refreshIntervalMs);
+      if (failure === undefined) {
+        timer = setTimeout(refresh, refreshIntervalRef.current);
       } else {
         const delay = Math.min(RETRY_DELAY_MS * 2 ** (failures - 1), RETRY_MAX_DELAY_MS);
         timer = setTimeout(refresh, delay);
@@ -205,14 +206,22 @@ export function RecaptchaField({
 
     // The browser has already read the spent token into this FormData, so it can be dropped
     // now. The field is emptied at once, not after a render, so a read that follows in the same
-    // task cannot send it.
-    const onFormData = () => {
+    // task cannot send it. A renewal is asked for only when a token was actually spent: an empty
+    // field has nothing to replace, and a request in flight will deliver a token that was never
+    // read. A failing renewal keeps its backoff this way, and one read means one request.
+    const onFormData = (event: Event) => {
+      // formdata bubbles, so a form nested in this one must not spend this field's token.
+      if (event.target !== form) return;
+      const spent = inputRef.current?.value ?? "";
       clearTimeout(expiry);
       if (inputRef.current) inputRef.current.value = "";
       setIssued(null);
-      if (renewal !== undefined) return;
+      if (spent === "" || inFlight || renewal !== undefined) return;
+      const issuedBefore = issuedCount;
       renewal = setTimeout(() => {
         renewal = undefined;
+        // A request started after the read has delivered its token by now, and it was not read.
+        if (inFlight || issuedCount !== issuedBefore) return;
         void refresh();
       }, 0);
     };
@@ -228,7 +237,7 @@ export function RecaptchaField({
       clearTimeout(expiry);
       form?.removeEventListener("formdata", onFormData);
     };
-  }, [status, execute, refreshIntervalMs, tokenKey]);
+  }, [status, execute, tokenKey]);
 
   if (!siteKey) return null;
 

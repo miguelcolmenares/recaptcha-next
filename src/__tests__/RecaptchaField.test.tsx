@@ -448,31 +448,32 @@ describe("RecaptchaField", () => {
       expect(execute).toHaveBeenCalledTimes(3);
     });
 
-    it("(f) a submit while a renewal is in flight asks for one more token afterwards", async () => {
+    it("(f) a submit while a renewal is in flight has no token to spend, so it asks for nothing more", async () => {
       const { form, value } = await mountInForm();
       // The first submit's renewal stays pending until the test resolves it.
       let resolveSecond!: (token: string) => void;
-      execute
-        .mockImplementationOnce(() => new Promise<string>((resolve) => (resolveSecond = resolve)))
-        .mockImplementationOnce(async () => "token-3");
+      execute.mockImplementationOnce(
+        () => new Promise<string>((resolve) => (resolveSecond = resolve)),
+      );
 
       await fire(form, "submit");
       await fire(form, "formdata");
       await settle();
       expect(execute).toHaveBeenCalledTimes(2);
 
-      // A second submit arrives while that request is still open.
+      // A second submit arrives while that request is still open. The field is already empty,
+      // and the token that request delivers has not been read by anyone.
       await fire(form, "submit");
       await fire(form, "formdata");
       await settle();
       expect(execute).toHaveBeenCalledTimes(2);
 
       await act(async () => resolveSecond("token-2"));
-      await waitFor(() => expect(value()).toBe("token-3"));
+      await waitFor(() => expect(value()).toBe("token-2"));
       await settle();
 
-      expect(execute).toHaveBeenCalledTimes(3);
-      expect(value()).toBe("token-3");
+      expect(execute).toHaveBeenCalledTimes(2);
+      expect(value()).toBe("token-2");
     });
 
     it("(g) a submit of another form on the page does not renew", async () => {
@@ -595,10 +596,12 @@ describe("RecaptchaField", () => {
 
       expect(retry.get("g-recaptcha-response")).toBe("");
       expect(value()).toBe("");
-      // The retry asked for one more token, which comes after the held one.
-      execute.mockResolvedValueOnce("token-3");
+      // The retry found the field empty, so it asked for nothing. The held request delivers the
+      // token the next submit will carry.
       await act(async () => resolveRenewal("token-2"));
-      await waitFor(() => expect(value()).toBe("token-3"));
+      await waitFor(() => expect(value()).toBe("token-2"));
+      await settle();
+      expect(execute).toHaveBeenCalledTimes(2);
     });
 
     it("(c) when the renewal rejects, the field stays empty and onError is called", async () => {
@@ -661,11 +664,10 @@ describe("RecaptchaField", () => {
       await tick();
       expect(value()).toBe("token-2");
 
-      // The zero-delay task runs and starts one more request, held here. token-2 was never
-      // serialized, so it stays in the field, and a retry sends it, while that request is pending.
-      execute.mockImplementationOnce(() => new Promise<string>(() => {}));
-      await advance(0);
-      expect(execute).toHaveBeenCalledTimes(3);
+      // The zero-delay task of that read runs. The request in flight delivered a token that no
+      // read has seen, so it stays in the field and nothing more is requested.
+      await advance(1);
+      expect(execute).toHaveBeenCalledTimes(2);
       expect(value()).toBe("token-2");
     });
   });
@@ -1348,6 +1350,225 @@ describe("RecaptchaField", () => {
         expect.stringContaining("[recaptcha-next]"),
         new Error("consumer bug"),
       );
+    });
+  });
+  describe("which reads of the form spend the token", () => {
+    /** Reads the form as the browser does: builds the FormData, then fires formdata with it. */
+    const read = (form: HTMLFormElement) => {
+      const formData = new FormData(form);
+      form.dispatchEvent(Object.assign(new Event("formdata"), { formData }));
+      return formData;
+    };
+
+    /** Mounts a loaded field in a form on fake timers. Its first token is already in the field. */
+    async function mountForm(refreshIntervalMs?: number) {
+      jest.useFakeTimers();
+      const utils = render(
+        <form>
+          <RecaptchaField action="a" siteKey={site} refreshIntervalMs={refreshIntervalMs} />
+        </form>,
+      );
+      const form = utils.container.querySelector("form") as HTMLFormElement;
+      await finishScriptLoad();
+      await tick();
+      return { ...utils, form, value: () => hiddenInput(utils.container)?.value };
+    }
+
+    it("two reads in one task send the token once and ask for one new token", async () => {
+      let issued = 0;
+      execute.mockImplementation(async () => `token-${++issued}`);
+      const { form, value } = await mountForm();
+      expect(value()).toBe("token-1");
+
+      let first!: FormData;
+      let second!: FormData;
+      await act(async () => {
+        first = read(form);
+        second = read(form);
+      });
+      await advance(0);
+
+      expect(first.get("g-recaptcha-response")).toBe("token-1");
+      expect(second.get("g-recaptcha-response")).toBe("");
+      expect(execute).toHaveBeenCalledTimes(2);
+      expect(value()).toBe("token-2");
+    });
+
+    it("a read followed by requestSubmit() in one task sends the token once, with one renewal", async () => {
+      let issued = 0;
+      execute.mockImplementation(async () => `token-${++issued}`);
+      const { form, value } = await mountForm();
+      const sent: unknown[] = [];
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        // What a submit handler does: read the form, which also fires formdata in a browser.
+        sent.push(read(form).get("g-recaptcha-response"));
+      });
+
+      let first!: FormData;
+      await act(async () => {
+        first = read(form);
+        form.requestSubmit();
+      });
+      await advance(0);
+
+      expect(first.get("g-recaptcha-response")).toBe("token-1");
+      expect(sent).toEqual([""]);
+      expect(execute).toHaveBeenCalledTimes(2);
+      expect(value()).toBe("token-2");
+    });
+
+    it("a read of an empty field asks for nothing, so a failing renewal keeps its backoff", async () => {
+      execute.mockResolvedValueOnce("token-1").mockRejectedValue(new Error("down"));
+      const { form, value } = await mountForm();
+
+      await act(async () => {
+        read(form);
+      });
+      await advance(0); // the renewal starts, and fails
+      expect(execute).toHaveBeenCalledTimes(2);
+      expect(value()).toBe("");
+
+      // The field is empty and the retry is 5 seconds away. Reading again spends nothing.
+      await act(async () => {
+        read(form);
+        read(form);
+      });
+      await advance(0);
+      await advance(4998);
+      expect(execute).toHaveBeenCalledTimes(2);
+      await advance(1);
+      expect(execute).toHaveBeenCalledTimes(2);
+      await advance(1); // 5 s after the failure
+      expect(execute).toHaveBeenCalledTimes(3);
+    });
+
+    it("a read while a request is in flight does not ask for another one", async () => {
+      const { form, value } = await mountForm(1000);
+      let resolveTimerRenewal!: (token: string) => void;
+      execute.mockImplementationOnce(
+        () => new Promise<string>((resolve) => (resolveTimerRenewal = resolve)),
+      );
+      await advance(1000);
+      expect(execute).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        read(form);
+      });
+      await advance(0);
+      expect(execute).toHaveBeenCalledTimes(2);
+
+      await act(async () => resolveTimerRenewal("token-2"));
+      await tick();
+      expect(value()).toBe("token-2");
+      await advance(0);
+      expect(execute).toHaveBeenCalledTimes(2);
+    });
+
+    it("a read while a request is in flight that then fails does not skip the backoff", async () => {
+      const { form, value } = await mountForm(1000);
+      let rejectRenewal!: (cause: Error) => void;
+      execute.mockImplementationOnce(
+        () => new Promise<string>((_, reject) => (rejectRenewal = reject)),
+      );
+      await advance(1000);
+      expect(execute).toHaveBeenCalledTimes(2);
+
+      // The request fails in the same task as the read, before the zero-delay task runs.
+      await act(async () => {
+        read(form);
+        rejectRenewal(new Error("down"));
+      });
+      await advance(0);
+      expect(execute).toHaveBeenCalledTimes(2);
+      expect(value()).toBe("");
+
+      execute.mockResolvedValueOnce("token-2");
+      await advance(4998);
+      expect(execute).toHaveBeenCalledTimes(2);
+      await advance(2); // 5 s after the failure
+      expect(execute).toHaveBeenCalledTimes(3);
+      expect(value()).toBe("token-2");
+    });
+
+    it("a token that arrives between the read and the zero-delay task survives, with no extra request", async () => {
+      let issued = 0;
+      execute.mockImplementation(async () => `token-${++issued}`);
+      jest.useFakeTimers();
+      // Created before the field's own refresh timer, so at 1000 ms it runs first. Its read
+      // schedules the renewal task. The refresh timer then starts a request that answers at once,
+      // before that task runs. The clock stays at 0 until here, so the script is loaded by hand,
+      // since `waitFor` would move fake time.
+      let form: HTMLFormElement | null = null;
+      setTimeout(() => form && read(form), 1000);
+      const { container } = render(
+        <form>
+          <RecaptchaField action="a" siteKey={site} refreshIntervalMs={1000} />
+        </form>,
+      );
+      form = container.querySelector("form");
+      const value = () => hiddenInput(container)?.value;
+      await act(async () => {
+        window.grecaptcha = { ready: (cb) => cb(), execute: execute as Grecaptcha["execute"] };
+        scripts()[0]?.dispatchEvent(new Event("load"));
+      });
+      await tick();
+      expect(value()).toBe("token-1");
+
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(1000);
+      });
+      await tick();
+
+      expect(value()).toBe("token-2");
+      // Fake timers give a zero delay set during a tick 1 ms, so the renewal task runs here.
+      await advance(1);
+      expect(execute).toHaveBeenCalledTimes(2);
+      expect(value()).toBe("token-2");
+    });
+
+    it("ignores a formdata event from a form nested inside its own form", async () => {
+      const { container, form, value } = await mountForm(1000);
+      const nested = document.createElement("form");
+      form.appendChild(nested);
+
+      await act(async () => {
+        nested.dispatchEvent(
+          Object.assign(new Event("formdata", { bubbles: true }), { formData: new FormData() }),
+        );
+      });
+      await advance(0);
+
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(value()).toBe("token-1");
+      expect(
+        new FormData(container.querySelector("form") as HTMLFormElement).get(
+          "g-recaptcha-response",
+        ),
+      ).toBe("token-1");
+    });
+
+    it("changing only refreshIntervalMs neither asks for a token nor drops the one it has", async () => {
+      jest.useFakeTimers();
+      const { container, rerender } = render(
+        <RecaptchaField action="a" siteKey={site} refreshIntervalMs={1000} />,
+      );
+      await finishScriptLoad();
+      await tick();
+      expect(hiddenInput(container)?.value).toBe("token-1");
+
+      rerender(<RecaptchaField action="a" siteKey={site} refreshIntervalMs={5000} />);
+      await tick();
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(hiddenInput(container)?.value).toBe("token-1");
+
+      // The timer that was running fires once, and the new interval applies from then on.
+      await advance(1000);
+      expect(execute).toHaveBeenCalledTimes(2);
+      await advance(4999);
+      expect(execute).toHaveBeenCalledTimes(2);
+      await advance(1);
+      expect(execute).toHaveBeenCalledTimes(3);
     });
   });
 });
