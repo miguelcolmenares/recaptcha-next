@@ -945,6 +945,101 @@ describe("RecaptchaField", () => {
     });
   });
 
+  describe("while the script is still loading", () => {
+    /** The token names the site key it was made for, so a stale one is easy to spot. */
+    beforeEach(() => {
+      execute.mockImplementation(async (key: string) => `token-for-${key}`);
+    });
+
+    /** Mounts with the first key, and waits until its script tag is in the page, still loading. */
+    async function mountWhileLoading(siteA: string, refreshIntervalMs?: number) {
+      const utils = render(
+        <RecaptchaField action="login" siteKey={siteA} refreshIntervalMs={refreshIntervalMs} />,
+      );
+      await waitFor(() =>
+        expect(document.head.querySelector(`script[src*="render=${siteA}"]`)).not.toBeNull(),
+      );
+      return utils;
+    }
+
+    it("(a) a siteKey change before the first script loads uses the new key, and drops the old load", async () => {
+      const siteB = `${site}-other`;
+      const { container, rerender } = await mountWhileLoading(site);
+      expect(execute).not.toHaveBeenCalled();
+
+      rerender(<RecaptchaField action="login" siteKey={siteB} />);
+      // Google answers for the old key first. Nothing may use that result.
+      await finishScriptLoadFor(site);
+      await tick();
+      expect(execute).not.toHaveBeenCalled();
+      expect(hiddenInput(container)?.value).toBe("");
+
+      await finishScriptLoadFor(siteB);
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe(`token-for-${siteB}`));
+      await settle();
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(execute).toHaveBeenCalledWith(siteB, { action: "login" });
+    });
+
+    it("(a) the old key's load that finishes last does not change the new key's token", async () => {
+      const siteB = `${site}-other`;
+      const { container, rerender } = await mountWhileLoading(site);
+
+      rerender(<RecaptchaField action="login" siteKey={siteB} />);
+      await finishScriptLoadFor(siteB);
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe(`token-for-${siteB}`));
+
+      await finishScriptLoadFor(site);
+      await settle();
+      expect(hiddenInput(container)?.value).toBe(`token-for-${siteB}`);
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(execute).not.toHaveBeenCalledWith(site, expect.anything());
+    });
+
+    it("(a) the old key's script that fails after the change reports no error and leaves the new key alone", async () => {
+      const siteB = `${site}-other`;
+      const onError = jest.fn();
+      const { container, rerender } = await mountWhileLoading(site);
+
+      rerender(<RecaptchaField action="login" siteKey={siteB} onError={onError} />);
+      await waitFor(() =>
+        expect(document.head.querySelector(`script[src*="render=${siteB}"]`)).not.toBeNull(),
+      );
+      await act(async () => {
+        document.head
+          .querySelector(`script[src*="render=${site}"]`)
+          ?.dispatchEvent(new Event("error"));
+      });
+      await tick();
+      expect(onError).not.toHaveBeenCalled();
+
+      await finishScriptLoadFor(siteB);
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe(`token-for-${siteB}`));
+      expect(onError).not.toHaveBeenCalled();
+      expect(execute).toHaveBeenCalledTimes(1);
+    });
+
+    it("(b) a short refresh interval does not start before the script has loaded", async () => {
+      jest.useFakeTimers();
+      const { container } = await mountWhileLoading(site, 100);
+
+      // The script takes five times longer than the interval. No request may start meanwhile.
+      await advance(500);
+      expect(execute).not.toHaveBeenCalled();
+
+      await finishScriptLoad();
+      await tick();
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(hiddenInput(container)?.value).toBe(`token-for-${site}`);
+
+      // The interval counts from the first token, not from the mount.
+      await advance(99);
+      expect(execute).toHaveBeenCalledTimes(1);
+      await advance(1);
+      expect(execute).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe("lazy mode", () => {
     it("loads nothing until the form becomes visible, then produces a token", async () => {
       (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver =
