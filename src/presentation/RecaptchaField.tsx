@@ -230,12 +230,18 @@ export function RecaptchaField({
 
     void refresh();
 
+    // The state is keyed by the pair, but it outlives this effect. Without clearing it here,
+    // going from A to B and back to A shows A's old token again, with no expiry timer left to
+    // drop it. Leaving the pair ends the token, in the state and in the input.
+    const input = inputRef.current;
     return () => {
       cancelled = true;
       clearTimeout(timer);
       clearTimeout(renewal);
       clearTimeout(expiry);
       form?.removeEventListener("formdata", onFormData);
+      if (input) input.value = "";
+      setIssued(null);
     };
   }, [status, execute, tokenKey]);
 

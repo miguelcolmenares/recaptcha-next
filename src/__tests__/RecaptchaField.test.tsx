@@ -1571,4 +1571,50 @@ describe("RecaptchaField", () => {
       expect(execute).toHaveBeenCalledTimes(3);
     });
   });
+  describe("going from one action to another and back", () => {
+    it("A to B to A with failing requests shows no token from before, in the input or the FormData", async () => {
+      jest.useFakeTimers();
+      execute.mockResolvedValueOnce("token-a").mockRejectedValue(new Error("down"));
+      const withAction = (action: string) => (
+        <form>
+          <RecaptchaField action={action} siteKey={site} />
+        </form>
+      );
+      const { container, rerender } = render(withAction("a"));
+      const form = container.querySelector("form") as HTMLFormElement;
+      await finishScriptLoad();
+      await tick();
+      expect(hiddenInput(container)?.value).toBe("token-a");
+
+      rerender(withAction("b"));
+      await tick();
+      expect(hiddenInput(container)?.value).toBe("");
+
+      rerender(withAction("a"));
+      await tick();
+      expect(hiddenInput(container)?.value).toBe("");
+      expect(new FormData(form).get("g-recaptcha-response")).toBe("");
+
+      // The old token has no expiry timer any more, so nothing would ever clear it later.
+      await advance(150_000);
+      expect(hiddenInput(container)?.value).toBe("");
+    });
+
+    it("A to B to A with a site key change does the same", async () => {
+      const otherSite = `${site}-other`;
+      execute.mockResolvedValueOnce("token-a").mockRejectedValue(new Error("down"));
+      const withKey = (key: string) => <RecaptchaField action="a" siteKey={key} />;
+      const { container, rerender } = render(withKey(site));
+      await finishScriptLoad();
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-a"));
+
+      rerender(withKey(otherSite));
+      await finishScriptLoadFor(otherSite);
+      await tick();
+      rerender(withKey(site));
+      await tick();
+
+      expect(hiddenInput(container)?.value).toBe("");
+    });
+  });
 });
