@@ -19,7 +19,11 @@ export interface RecaptchaFieldProps {
   lazyRootMargin?: string;
   /** Milliseconds between token refreshes. Defaults to 90 seconds. */
   refreshIntervalMs?: number;
-  /** Called on every new token. Unstable function props are safe, no `useCallback` needed. */
+  /**
+   * Called on every new token, once the token is already in the hidden input, so reading or
+   * submitting the form inside it sends this token. Unstable function props are safe, no
+   * `useCallback` needed.
+   */
   onTokenGenerated?: (token: string) => void;
   /**
    * Called each time loading the script, making a token or a renewal fails. Failed renewals are
@@ -166,6 +170,11 @@ export function RecaptchaField({
       if (cancelled) return;
       if (renewed) {
         failures = 0;
+        // The input is controlled, so React writes the new value only after the next render. The
+        // callback runs before that, and a consumer that reads or submits the form in it must
+        // already see this token. Write it now, in the same task. The state below holds the same
+        // value, so the render that follows changes nothing.
+        if (inputRef.current) inputRef.current.value = next;
         setIssued({ key: tokenKey, value: next });
         onTokenRef.current?.(next);
         clearTimeout(expiry);

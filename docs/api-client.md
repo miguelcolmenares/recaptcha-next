@@ -18,7 +18,7 @@ Renders a hidden input and keeps a fresh token in it.
 | `lazy`              | `false`                          | Load Google's script only when the form is near the viewport.                                          |
 | `lazyRootMargin`    | `200px`                          | How early lazy loading starts.                                                                         |
 | `refreshIntervalMs` | `90000`                          | Time between token refreshes. Google tokens last two minutes.                                          |
-| `onTokenGenerated`  |                                  | Called with each new token. Inline functions are safe.                                                 |
+| `onTokenGenerated`  |                                  | Called with each new token, already in the hidden input. Inline functions are safe.                    |
 | `onError`           |                                  | Called on each failure: the script, a token or a renewal. Failed renewals repeat with a growing delay. |
 
 A token works once. When the browser builds the form's data for a submit (the `formdata` event), the field asks for a

@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A token works once. The field keeps its timer, and a field outside a form renews on the timer
   only. A failed token request is retried after 5 seconds, then after longer waits up to 30
   seconds, and a token is cleared when its two minutes pass. The server docs cover the refusal reasons.
+- `RecaptchaField` writes a new token to the hidden input before it calls `onTokenGenerated`.
+  Before, the input still held the previous token (or nothing, for the first one) during the
+  callback, so a `requestSubmit()` or `new FormData(form)` inside it sent an empty or stale token.
 - The default server requires a secret in production and in absent or unknown
   runtime modes. Only explicit development and test modes allow unconfigured checks.
   `isRecaptchaEnabled()` uses the same rule as the default verifier.

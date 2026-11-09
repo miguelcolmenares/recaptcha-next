@@ -139,6 +139,92 @@ describe("RecaptchaField", () => {
     await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-2"));
   });
 
+  describe("the token inside onTokenGenerated", () => {
+    /** What a consumer that submits from the callback reads: the form's data, at that moment. */
+    const readToken = (form: HTMLFormElement | null) =>
+      form ? new FormData(form).get("g-recaptcha-response") : undefined;
+
+    it("is already in the form's data for the first token", async () => {
+      const seen: unknown[] = [];
+      const { container } = render(
+        <form>
+          <RecaptchaField
+            action="a"
+            siteKey={site}
+            onTokenGenerated={() => seen.push(readToken(container.querySelector("form")))}
+          />
+        </form>,
+      );
+      await finishScriptLoad();
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-1"));
+
+      expect(seen).toEqual(["token-1"]);
+    });
+
+    it("is already in the form's data for a refresh, not the previous token", async () => {
+      execute.mockResolvedValueOnce("token-1").mockResolvedValueOnce("token-2");
+      jest.useFakeTimers();
+      const seen: Array<[string, unknown]> = [];
+      const { container } = render(
+        <form>
+          <RecaptchaField
+            action="a"
+            siteKey={site}
+            refreshIntervalMs={1000}
+            onTokenGenerated={(token) =>
+              seen.push([token, readToken(container.querySelector("form"))])
+            }
+          />
+        </form>,
+      );
+      await finishScriptLoad();
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-1"));
+      await advance(1000);
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-2"));
+
+      expect(seen).toEqual([
+        ["token-1", "token-1"],
+        ["token-2", "token-2"],
+      ]);
+    });
+
+    it("is already in the form's data when the callback submits the form", async () => {
+      const sent: unknown[] = [];
+      const { container } = render(
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            sent.push(readToken(event.currentTarget));
+          }}
+        >
+          <RecaptchaField
+            action="a"
+            siteKey={site}
+            onTokenGenerated={() => container.querySelector("form")?.requestSubmit()}
+          />
+        </form>,
+      );
+      await finishScriptLoad();
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-1"));
+
+      expect(sent).toEqual(["token-1"]);
+    });
+
+    it("leaves the input holding the token after the render, so React does not fight the write", async () => {
+      const { container } = render(
+        <form>
+          <RecaptchaField action="a" siteKey={site} />
+        </form>,
+      );
+      await finishScriptLoad();
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-1"));
+      await tick();
+
+      expect(hiddenInput(container)?.value).toBe("token-1");
+      expect(hiddenInput(container)?.getAttribute("value")).toBe("token-1");
+    });
+  });
+
   describe("after a submit", () => {
     it("asks for a new token and puts it in the hidden input", async () => {
       execute.mockResolvedValueOnce("token-1").mockResolvedValueOnce("token-2");

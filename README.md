@@ -103,7 +103,7 @@ for the full table and examples.
 | `lazy`              | `false`                          | Load Google's script only when the form is near the viewport.                                          |
 | `lazyRootMargin`    | `200px`                          | How early lazy loading starts.                                                                         |
 | `refreshIntervalMs` | `90000`                          | Time between token refreshes. Google tokens last two minutes.                                          |
-| `onTokenGenerated`  |                                  | Called with each new token. Inline functions are safe.                                                 |
+| `onTokenGenerated`  |                                  | Called with each new token, already in the hidden input. Inline functions are safe.                    |
 | `onError`           |                                  | Called on each failure: the script, a token or a renewal. Failed renewals repeat with a growing delay. |
 
 `useRecaptcha({ action, siteKey?, enabled? })` returns `{ status, error, execute }`.
