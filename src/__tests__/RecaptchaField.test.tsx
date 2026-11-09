@@ -351,6 +351,110 @@ describe("RecaptchaField", () => {
     });
   });
 
+  describe("the spent token after a submit", () => {
+    /** Mounts a field in a form with token-1. The next renewal is held until the test resolves it. */
+    async function mountWithHeldRenewal() {
+      const onError = jest.fn();
+      const utils = render(
+        <form>
+          <RecaptchaField action="contact" siteKey={site} onError={onError} />
+        </form>,
+      );
+      const form = utils.container.querySelector("form") as HTMLFormElement;
+      execute.mockResolvedValueOnce("token-1");
+      await finishScriptLoad();
+      await waitFor(() => expect(hiddenInput(utils.container)?.value).toBe("token-1"));
+
+      let resolveRenewal!: (token: string) => void;
+      let rejectRenewal!: (cause: Error) => void;
+      execute.mockImplementationOnce(
+        () =>
+          new Promise<string>((resolve, reject) => {
+            resolveRenewal = resolve;
+            rejectRenewal = reject;
+          }),
+      );
+      const value = () => hiddenInput(utils.container)?.value;
+      return {
+        ...utils,
+        form,
+        onError,
+        value,
+        resolveRenewal: (token: string) => resolveRenewal(token),
+        rejectRenewal: (cause: Error) => rejectRenewal(cause),
+      };
+    }
+
+    /** A submit as the browser runs it: submit, then FormData is built, then formdata. */
+    async function submitForm(form: HTMLFormElement) {
+      let formData!: FormData;
+      await act(async () => {
+        form.dispatchEvent(new Event("submit", { cancelable: true }));
+        formData = new FormData(form);
+        form.dispatchEvent(Object.assign(new Event("formdata"), { formData }));
+      });
+      return formData;
+    }
+
+    /** Lets the renewal, scheduled with a timeout of 0, start. */
+    const settle = () =>
+      act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+
+    it("(a) while the renewal is pending, the hidden input and FormData carry no token", async () => {
+      const { form, value } = await mountWithHeldRenewal();
+
+      await submitForm(form);
+      await settle();
+
+      expect(execute).toHaveBeenCalledTimes(2);
+      expect(value()).toBe("");
+      expect(new FormData(form).get("g-recaptcha-response")).toBe("");
+    });
+
+    it("(b) a retry while the renewal is pending sends no spent token", async () => {
+      const { form, value, resolveRenewal } = await mountWithHeldRenewal();
+      await submitForm(form);
+      await settle();
+
+      const retry = await submitForm(form);
+      await settle();
+
+      expect(retry.get("g-recaptcha-response")).toBe("");
+      expect(value()).toBe("");
+      // The retry asked for one more token, which comes after the held one.
+      execute.mockResolvedValueOnce("token-3");
+      await act(async () => resolveRenewal("token-2"));
+      await waitFor(() => expect(value()).toBe("token-3"));
+    });
+
+    it("(c) when the renewal rejects, the field stays empty and onError is called", async () => {
+      const { form, value, onError, rejectRenewal } = await mountWithHeldRenewal();
+      const failure = new Error("network down");
+
+      await submitForm(form);
+      await settle();
+      await act(async () => rejectRenewal(failure));
+      await settle();
+
+      expect(onError).toHaveBeenCalledWith(failure);
+      expect(value()).toBe("");
+      expect(new FormData(form).get("g-recaptcha-response")).toBe("");
+    });
+
+    it("(d) the submission that triggered the renewal still carried its token", async () => {
+      const { form, value, resolveRenewal } = await mountWithHeldRenewal();
+
+      const formData = await submitForm(form);
+
+      expect(formData.get("g-recaptcha-response")).toBe("token-1");
+      await settle();
+      await act(async () => resolveRenewal("token-2"));
+      await waitFor(() => expect(value()).toBe("token-2"));
+    });
+  });
+
   it("calls onError when the script fails to load", async () => {
     const onError = jest.fn();
     render(<RecaptchaField action="a" siteKey={site} onError={onError} />);

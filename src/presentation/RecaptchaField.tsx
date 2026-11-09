@@ -26,7 +26,8 @@ const DEFAULT_REFRESH_MS = TOKEN_TTL_MS - TOKEN_REFRESH_MARGIN_MS;
 
 /**
  * Renders a hidden input that holds a token for the current action and site key. It is empty
- * until the first token arrives, and again after a change until the new token arrives.
+ * until the first token arrives, again after a change until the new token arrives, and after a
+ * submit until the renewal for that submit arrives (or stays empty if the renewal fails).
  * Renders nothing without a site key.
  */
 export function RecaptchaField({
@@ -125,11 +126,13 @@ export function RecaptchaField({
 
     // A submit has already read the spent token, so the new one is requested
     // after the current task. That also merges the submit and formdata events of
-    // one submit into a single request.
+    // one submit into a single request. The spent token is dropped here too, so a
+    // retry before the renewal lands never sends it, and a failed renewal leaves the field empty.
     const requestRenewal = () => {
       if (renewal !== undefined) return;
       renewal = setTimeout(() => {
         renewal = undefined;
+        setIssued(null);
         void refresh();
       }, 0);
     };
