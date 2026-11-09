@@ -98,6 +98,72 @@ describe("RecaptchaField", () => {
     await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-2"));
   });
 
+  describe("after a submit", () => {
+    it("asks for a new token and puts it in the hidden input", async () => {
+      execute.mockResolvedValueOnce("token-1").mockResolvedValueOnce("token-2");
+      const { container } = render(
+        <form>
+          <RecaptchaField action="contact" siteKey={site} />
+        </form>,
+      );
+      await finishScriptLoad();
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-1"));
+
+      await act(async () => {
+        container.querySelector("form")?.dispatchEvent(new Event("submit"));
+      });
+
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-2"));
+      expect(execute).toHaveBeenCalledTimes(2);
+    });
+
+    it("asks once for a submit that fires both submit and formdata", async () => {
+      execute.mockResolvedValueOnce("token-1").mockResolvedValueOnce("token-2");
+      const { container } = render(
+        <form>
+          <RecaptchaField action="contact" siteKey={site} />
+        </form>,
+      );
+      await finishScriptLoad();
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-1"));
+
+      const form = container.querySelector("form");
+      await act(async () => {
+        form?.dispatchEvent(new Event("submit"));
+        form?.dispatchEvent(new Event("formdata"));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-2"));
+      expect(execute).toHaveBeenCalledTimes(2);
+    });
+
+    it("keeps the timer only when the field is not inside a form", async () => {
+      jest.useFakeTimers();
+      execute.mockResolvedValueOnce("token-1").mockResolvedValueOnce("token-2");
+      const { container } = render(
+        <RecaptchaField action="a" siteKey={site} refreshIntervalMs={1000} />,
+      );
+      await finishScriptLoad();
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-1"));
+
+      // A submit on some other form must not renew this field.
+      const other = document.createElement("form");
+      document.body.appendChild(other);
+      await act(async () => {
+        other.dispatchEvent(new Event("submit"));
+        await Promise.resolve();
+      });
+      other.remove();
+      expect(execute).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        jest.advanceTimersByTime(1000);
+      });
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-2"));
+    });
+  });
+
   it("calls onError when the script fails to load", async () => {
     const onError = jest.fn();
     render(<RecaptchaField action="a" siteKey={site} onError={onError} />);

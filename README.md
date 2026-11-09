@@ -65,6 +65,28 @@ export async function sendMessage(formData: FormData) {
 }
 ```
 
+## Retry after a refusal
+
+A token works once. After every submit of the form, `RecaptchaField` asks for a new token, so a visitor who
+was refused can send the form again. Outside a `<form>` the field renews on its timer only. Older versions
+need the field to mount again after each server answer: give `<RecaptchaField>` a `key` that changes.
+
+| Reason               | Meaning                                                               |
+| -------------------- | --------------------------------------------------------------------- |
+| `low-score`          | Google scored the visit below `minScore` (default `0.5`).             |
+| `rejected-by-google` | Google did not accept the token. `errorCodes` says why.               |
+| `action-mismatch`    | The token was made for another action than `expectedAction`.          |
+| `hostname-mismatch`  | The token was made on another hostname than `expectedHostname`.       |
+| `missing-token`      | The form had no token yet, usually because the script has not loaded. |
+| `missing-secret`     | The server requires `RECAPTCHA_SECRET_KEY` and has none.              |
+| `request-failed`     | The request to Google failed.                                         |
+
+A real visitor can score below the default for a reason on their side: a browser that blocks third-party
+storage, a VPN, or a new browser profile. Log `reason`, `score` and `errorCodes` on a refusal, never the token,
+and tune `minScore` from your own logs. The message `requestStorageAccess: Permission denied` in the console
+comes from Google's iframe and is not the cause of a refusal. See the [server actions guide](https://miguelcolmenares.com/recaptcha-next/docs/server-actions/)
+for the full table and examples.
+
 ## API
 
 ### `recaptcha-next/client`

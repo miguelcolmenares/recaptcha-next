@@ -81,24 +81,62 @@ export function RecaptchaField({
     if (status !== "ready") return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let renewal: ReturnType<typeof setTimeout> | undefined;
+    let inFlight = false;
+    let renewAgain = false;
 
     const refresh = async () => {
+      // One request at a time. A submit that arrives meanwhile asks for one more afterwards.
+      if (inFlight) {
+        renewAgain = true;
+        return;
+      }
+      inFlight = true;
+      clearTimeout(timer);
+      let renewed = false;
       try {
         const next = await execute();
         if (cancelled) return;
         setToken(next);
         onTokenRef.current?.(next);
-        timer = setTimeout(refresh, refreshIntervalMs);
+        renewed = true;
       } catch (cause) {
         if (!cancelled)
           onErrorRef.current?.(cause instanceof Error ? cause : new Error(String(cause)));
+      } finally {
+        inFlight = false;
+      }
+      if (cancelled) return;
+      if (renewAgain) {
+        renewAgain = false;
+        void refresh();
+      } else if (renewed) {
+        timer = setTimeout(refresh, refreshIntervalMs);
       }
     };
+
+    // A submit has already read the spent token, so the new one is requested
+    // after the current task. That also merges the submit and formdata events of
+    // one submit into a single request.
+    const requestRenewal = () => {
+      if (renewal !== undefined) return;
+      renewal = setTimeout(() => {
+        renewal = undefined;
+        void refresh();
+      }, 0);
+    };
+    const form = anchorRef.current?.closest("form") ?? null;
+    form?.addEventListener("submit", requestRenewal);
+    form?.addEventListener("formdata", requestRenewal);
+
     void refresh();
 
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      clearTimeout(renewal);
+      form?.removeEventListener("submit", requestRenewal);
+      form?.removeEventListener("formdata", requestRenewal);
     };
   }, [status, execute, refreshIntervalMs]);
 

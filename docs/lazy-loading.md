@@ -22,7 +22,7 @@ Until the script loads there is no token, so a very fast submit can happen befor
 
 ## Token refresh
 
-Google tokens last two minutes. The field replaces its token every `refreshIntervalMs`, which is 90 seconds by default, so a visitor who takes a while to fill the form still submits a valid one.
+Google tokens last two minutes. The field replaces its token every `refreshIntervalMs`, which is 90 seconds by default, so a visitor who takes a while to fill the form still submits a valid one. The field also asks for a new token after each submit of its form, so a retry after a refusal has a fresh one. See [Server Actions](server-actions.md).
 
 ## One script per page
 

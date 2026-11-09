@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `RecaptchaField` asks for a new token after each submit of its form, so a visitor refused by
+  the server can send the form again. A token works once. The field keeps its timer, and a
+  field outside a form renews on the timer only. The server docs cover the refusal reasons.
 - The default server requires a secret in production and in absent or unknown
   runtime modes. Only explicit development and test modes allow unconfigured checks.
   `isRecaptchaEnabled()` uses the same rule as the default verifier.
