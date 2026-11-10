@@ -196,7 +196,8 @@ finishes loading before the field mounts, mark that script after its load succee
 For Next.js `<Script>`, set this attribute on the element from `onLoad` or
 `onReady`. Set it only after successful loading, never as an initial attribute.
 Each load attempt, including a fresh tag and its readiness callback, has a 15-second deadline.
-An error or timeout rejects the load, without using another key's global. Timed-out tags stay
+An error or timeout rejects the load, without using another key's global. A tag whose load finishes
+without the API or a usable readiness function is removed, so retrying can load a fresh script. Timed-out tags stay
 available for a late load or readiness callback, so retrying does not add duplicate scripts.
 Already-finished, unmarked tags time out because their load event cannot repeat.
 

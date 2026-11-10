@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A script that loads without a usable reCAPTCHA API is removed before retrying, including a layout tag marked as loaded. Previously each retry reused the broken tag and could never recover. Pending scripts and readiness callbacks that only time out are still retained for late recovery.
+
 - Disabling lazy loading before an offscreen field becomes visible now starts loading; re-enabling lazy mode keeps that load and token lifecycle active.
 
 - The default server verifier logs failed checks with `reason`, `score` and `errorCodes`, without

@@ -57,7 +57,7 @@ Tests that need a real Google key skip themselves when the keys are missing.
 - Every subpath must resolve under `node10`, `node16` and `bundler`. `verify:package` checks all three.
 - A dev tool must not cap TypeScript in its peer range. One exception is documented in `.github/dependabot.yml`.
 - A callback prop must never restart an effect. Keep callbacks in refs. A numeric prop that only sets a delay (`refreshIntervalMs`) is read from a ref too. Consumer callbacks run last, after the field's own state and timers are updated, and only through `callSafely`, which logs a throw and never rethrows.
-- Loading a script is not the same as the global being ready. Wait for `grecaptcha.ready`.
+- Loading a script is not the same as initializing the API. Wait for `grecaptcha.ready`. A failed initialization removes its unusable tag so retry can load a fresh script; a wrapper deadline alone keeps the pending tag for late recovery.
 - Never unload Google's script when a component unmounts. Tested with real Google: removing the tag and
   loading it again after a client-side navigation left duplicate badges and extra scripts, and sometimes a
   `window.grecaptcha` with no tag. A stubbed script hides this, so the navigation specs run against real Google too.

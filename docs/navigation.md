@@ -34,7 +34,9 @@ Do not set the marker before loading succeeds.
 
 Every attempt has a 15-second deadline, including fresh tags and `grecaptcha.ready`.
 An existing tag that finished before observation without the completion marker also times out.
-Failed tags are removed so a retry can load again. A timed-out tag is kept, so a late load or
+A load event alone is not successful initialization: tags that fail to provide the API, provide no
+`ready` function, or throw while registering readiness are removed so a retry loads a fresh script.
+A timed-out tag is kept, so a late load or
 readiness callback is reused by the next attempt without another script or event registration.
 
 ## The badge stays visible

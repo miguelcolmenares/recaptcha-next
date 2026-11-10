@@ -23,6 +23,34 @@ test.describe("with a stubbed Google script", () => {
     await expect(result(page)).toContainText('"success":false');
   });
 
+  test("a script response without an API is replaced on the automatic retry", async ({ page }) => {
+    await page.clock.install();
+    let requests = 0;
+    await page.route(GOOGLE_SCRIPT, (route) => {
+      requests += 1;
+      return route.fulfill({
+        contentType: "application/javascript",
+        body:
+          requests === 1
+            ? "// no reCAPTCHA API supplied"
+            : `window.grecaptcha = {
+          ready: callback => callback(),
+          execute: () => Promise.resolve("recovered-token")
+        };`,
+      });
+    });
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+    await expect(tokenInput(page)).toHaveValue("");
+    await expect(page.locator('script[src*="recaptcha/api.js"]')).toHaveCount(0);
+    expect(requests).toBe(1);
+
+    await page.clock.fastForward(5_001);
+    await expect(tokenInput(page)).toHaveValue("recovered-token");
+    await expect(page.locator('script[src*="recaptcha/api.js"]')).toHaveCount(1);
+    expect(requests).toBe(2);
+  });
+
   test("a long refresh interval renews before the token expires", async ({ page }) => {
     await page.clock.install();
     await page.route(GOOGLE_SCRIPT, (route) =>

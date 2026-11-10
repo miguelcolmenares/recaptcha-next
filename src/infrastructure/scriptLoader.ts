@@ -16,7 +16,7 @@ const LOAD_ERROR_MESSAGE = "Failed to load reCAPTCHA script";
 
 // One promise per site key, kept for the life of the page.
 //
-// A successfully loaded script is never removed. Google keeps its own state (badge, iframes, extra
+// A successfully initialized script is never removed. Google keeps its own state (badge, iframes, extra
 // scripts), and removing our tag does not reset it. Tested against real Google: loading it again
 // after a client-side navigation left duplicate badges and extra scripts, and sometimes a global
 // with no script tag. Loading once, as a plain <script> in a layout would, avoids all of that.
@@ -59,32 +59,37 @@ function readyApi(): Promise<Grecaptcha> {
 function registerScript(element: HTMLScriptElement): Promise<Grecaptcha> {
   const registered = registrations.get(element);
   if (registered) return registered;
-  if (element.dataset.recaptchaLoaded === "true") return readyApi();
-
-  const registration = new Promise<Grecaptcha>((resolve, reject) => {
-    function detach() {
-      element.removeEventListener("load", loaded);
-      element.removeEventListener("error", failed);
-    }
-    function loaded() {
-      detach();
-      element.dataset.recaptchaLoaded = "true";
-      resolve(readyApi());
-    }
-    function failed() {
-      detach();
-      element.remove();
-      reject(new Error(LOAD_ERROR_MESSAGE));
-    }
-    element.addEventListener("load", loaded, { once: true });
-    element.addEventListener("error", failed, { once: true });
-  });
+  const registration =
+    element.dataset.recaptchaLoaded === "true"
+      ? readyApi()
+      : new Promise<Grecaptcha>((resolve, reject) => {
+          function detach() {
+            element.removeEventListener("load", loaded);
+            element.removeEventListener("error", failed);
+          }
+          function loaded() {
+            detach();
+            element.dataset.recaptchaLoaded = "true";
+            resolve(readyApi());
+          }
+          function failed() {
+            detach();
+            element.remove();
+            reject(new Error(LOAD_ERROR_MESSAGE));
+          }
+          element.addEventListener("load", loaded, { once: true });
+          element.addEventListener("error", failed, { once: true });
+        });
   registrations.set(element, registration);
-  void registration.catch(() => registrations.delete(element));
+  void registration.catch(() => {
+    registrations.delete(element);
+    // An executed tag with no usable API cannot recover by waiting for its old load event.
+    element.remove();
+  });
   return registration;
 }
 
-/** Bound the wait for this tag and its readiness callback, without removing a loaded script. */
+/** Bound this wait without removing a tag whose initialization is still pending. */
 function waitForScript(element: HTMLScriptElement): Promise<Grecaptcha> {
   return new Promise((resolve, reject) => {
     const deadline = setTimeout(() => reject(new Error(LOAD_ERROR_MESSAGE)), SCRIPT_TIMEOUT_MS);
