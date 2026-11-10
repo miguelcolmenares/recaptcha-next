@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { RECAPTCHA_TOKEN_FIELD, TOKEN_REFRESH_MARGIN_MS, TOKEN_TTL_MS } from "../domain";
-import { callSafely } from "./callSafely";
-import { readSiteKey } from "./readSiteKey";
-import { useRecaptcha } from "./useRecaptcha";
+import { RECAPTCHA_TOKEN_FIELD, TOKEN_REFRESH_MARGIN_MS, TOKEN_TTL_MS } from "@/domain";
+import { callSafely } from "@/presentation/call-safely";
+import { readSiteKey } from "@/presentation/read-site-key";
+import { useRecaptcha } from "@/presentation/use-recaptcha";
 
 export interface RecaptchaFieldProps {
   /** Action name, checked again on the server. */
@@ -83,7 +83,7 @@ function withTimeout<T>(pending: Promise<T>, ms: number, signal: AbortSignal): P
  * and the FormData you just built still carries the token it read. Read the form once, at submit
  * time, and send that same FormData.
  */
-export function RecaptchaField({
+export default function RecaptchaField({
   action,
   siteKey: siteKeyProp,
   name = RECAPTCHA_TOKEN_FIELD,

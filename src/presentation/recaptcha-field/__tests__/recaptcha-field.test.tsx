@@ -2,8 +2,8 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { Component, useState } from "react";
 import type { ReactNode } from "react";
-import { RecaptchaField } from "../presentation/RecaptchaField";
-import type { Grecaptcha } from "../infrastructure/scriptLoader";
+import { RecaptchaField } from "@/presentation";
+import type { Grecaptcha } from "@/infrastructure";
 
 const scripts = () => document.head.querySelectorAll('script[src*="recaptcha/api.js"]');
 const hiddenInput = (container: HTMLElement) =>

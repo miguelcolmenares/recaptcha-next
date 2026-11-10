@@ -1,4 +1,4 @@
-import { evaluateResponse } from "../domain/evaluateResponse";
+import { evaluateResponse } from "@/domain/evaluate-response";
 
 const good = { success: true, score: 0.9, action: "login", hostname: "example.com" };
 

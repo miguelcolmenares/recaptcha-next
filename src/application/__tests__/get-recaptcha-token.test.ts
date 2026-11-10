@@ -1,4 +1,4 @@
-import { getRecaptchaToken } from "../application/getRecaptchaToken";
+import { getRecaptchaToken } from "@/application/get-recaptcha-token";
 
 describe("getRecaptchaToken", () => {
   it("reads the default field", () => {

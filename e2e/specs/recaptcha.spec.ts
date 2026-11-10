@@ -159,7 +159,7 @@ test.describe("with real Google keys", () => {
     await expect(result(page)).toContainText('"tokenReceived":true');
 
     // The fixture accepts any score, so a real token must verify. Server Action coverage is in
-    // serverAction.spec.ts; this only checks that nothing failed.
+    // server-action.spec.ts; this only checks that nothing failed.
     await expect(result(page)).toContainText('"success":true');
   });
 });

@@ -1,4 +1,4 @@
-import { RECAPTCHA_SCRIPT_URL } from "../domain";
+import { RECAPTCHA_SCRIPT_URL } from "@/domain";
 
 /** The part of `window.grecaptcha` this package uses. */
 export interface Grecaptcha {

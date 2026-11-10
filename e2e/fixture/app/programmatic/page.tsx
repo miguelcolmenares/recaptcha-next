@@ -1,4 +1,4 @@
-import { ProgrammaticForm } from "./ProgrammaticForm";
+import ProgrammaticForm from "./programmatic-form";
 
 export default function ProgrammaticPage() {
   return (

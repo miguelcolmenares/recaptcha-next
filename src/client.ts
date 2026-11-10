@@ -1,10 +1,9 @@
 "use client";
 
-export { RecaptchaField } from "./presentation/RecaptchaField";
-export type { RecaptchaFieldProps } from "./presentation/RecaptchaField";
-export { useRecaptcha } from "./presentation/useRecaptcha";
+export { RecaptchaField, useRecaptcha } from "@/presentation";
 export type {
+  RecaptchaFieldProps,
   RecaptchaStatus,
   UseRecaptchaOptions,
   UseRecaptchaResult,
-} from "./presentation/useRecaptcha";
+} from "@/presentation";

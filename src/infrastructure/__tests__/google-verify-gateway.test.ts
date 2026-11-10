@@ -1,4 +1,4 @@
-import { createGoogleVerifyGateway } from "../infrastructure/googleVerifyGateway";
+import { createGoogleVerifyGateway } from "@/infrastructure/google-verify-gateway";
 
 describe("createGoogleVerifyGateway", () => {
   it("posts a form-encoded body to the verify URL", async () => {

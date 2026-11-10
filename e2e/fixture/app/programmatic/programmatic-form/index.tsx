@@ -3,13 +3,13 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { useRecaptcha } from "recaptcha-next/client";
-import { submitAction } from "../actions";
-import { initialState } from "../ContactForm";
-import type { SubmitState } from "../actions";
+import { submitAction } from "../../actions";
+import { initialState } from "../../initial-state";
+import type { SubmitState } from "../../actions";
 
 // No hidden input here. The token is requested when the user submits, put in a FormData built
 // by hand, and sent to the Server Action. This is the path for custom FormData and fetch calls.
-export function ProgrammaticForm() {
+export default function ProgrammaticForm() {
   const { status, execute } = useRecaptcha({ action: "contact" });
   const [state, setState] = useState<SubmitState>(initialState);
 

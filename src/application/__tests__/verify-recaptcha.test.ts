@@ -1,5 +1,5 @@
-import type { VerifierDependencies } from "../application/verifyRecaptcha";
-import { createVerifyRecaptcha } from "../application/verifyRecaptcha";
+import type { VerifierDependencies } from "@/application/verify-recaptcha";
+import { createVerifyRecaptcha } from "@/application/verify-recaptcha";
 
 function setup(overrides: Partial<VerifierDependencies> = {}) {
   const verify = jest.fn().mockResolvedValue({

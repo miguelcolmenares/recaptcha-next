@@ -1,2 +1,2 @@
-export * from "./googleVerifyGateway";
-export * from "./scriptLoader";
+export * from "./google-verify-gateway";
+export * from "./script-loader";
