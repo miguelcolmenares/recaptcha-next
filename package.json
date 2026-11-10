@@ -1,6 +1,6 @@
 {
   "name": "recaptcha-next",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Google reCAPTCHA v3 for React and Next.js: client token generation and server-side verification.",
   "author": "Miguel Colmenares <me@miguelcolmenares.com>",
   "license": "MIT",
