@@ -1,4 +1,5 @@
 import { createVerifyRecaptcha } from "./application/verifyRecaptcha";
+import type { VerifyRecaptcha } from "./application/verifyRecaptcha";
 import { ENV_SECRET_KEY } from "./domain/constants";
 import { createGoogleVerifyGateway } from "./infrastructure/googleVerifyGateway";
 
@@ -19,15 +20,27 @@ function requiresConfiguredSecret(): boolean {
   }
 }
 
-/** Verify a token with Google. Reads `RECAPTCHA_SECRET_KEY` unless `options.secret` is given. */
-export const verifyRecaptcha = createVerifyRecaptcha({
+const verify = createVerifyRecaptcha({
   gateway: createGoogleVerifyGateway(),
   getSecret: () => process.env[ENV_SECRET_KEY],
   isProduction: requiresConfiguredSecret,
   warn: (message) => console.warn(message),
 });
 
-/** True when verification is required, including in unknown runtime environments. */
+/** Verify with the configured gateway and log failed checks without credentials or tokens. */
+export const verifyRecaptcha: VerifyRecaptcha = async (token, options) => {
+  const result = await verify(token, options);
+  if (!result.success) {
+    console.error("[recaptcha-next] verification failed", {
+      reason: result.reason,
+      score: result.score,
+      errorCodes: result.errorCodes,
+    });
+  }
+  return result;
+};
+
+/** Reports strict-secret or configured-secret policy; always verify the submitted token. */
 export function isRecaptchaEnabled(): boolean {
   return requiresConfiguredSecret() || Boolean(process.env[ENV_SECRET_KEY]);
 }

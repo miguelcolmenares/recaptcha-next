@@ -8,7 +8,8 @@ Your own tests should not call Google. The server side is built from small parts
 
 ## Build a verifier with your own gateway
 
-`createVerifyRecaptcha` takes the pieces `verifyRecaptcha` uses and returns a function with the same behavior, so you can decide what Google "answers".
+`createVerifyRecaptcha` takes the pieces `verifyRecaptcha` uses and returns a function with the same verification decisions, so you can decide what Google "answers".
+The factory leaves logging to its caller; the default server verifier owns its own safe failure log.
 
 ```ts
 import { createVerifyRecaptcha } from "recaptcha-next/server";

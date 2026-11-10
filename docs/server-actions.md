@@ -22,16 +22,21 @@ This is the pattern the package itself is tested with, using `useActionState` to
 
 import { useActionState } from "react";
 import { RecaptchaField } from "recaptcha-next/client";
-import { submitAction } from "./actions";
+import { sendMessage } from "./actions";
+import type { SubmitState } from "./actions";
+
+const initialState: SubmitState = { success: null, reason: null };
 
 export function ContactForm() {
-  const [state, formAction] = useActionState(submitAction, { success: null, reason: null });
+  const [state, formAction, pending] = useActionState(sendMessage, initialState);
   return (
     <form action={formAction}>
       <input name="message" />
       <RecaptchaField action="contact" />
-      <button type="submit">Send</button>
-      {state.success === false && <p role="alert">Could not verify you: {state.reason}</p>}
+      <button type="submit" disabled={pending}>
+        Send
+      </button>
+      {state.success === false && <p role="alert">Could not verify your visit. Try again.</p>}
     </form>
   );
 }
@@ -42,13 +47,21 @@ export function ContactForm() {
 "use server";
 
 import { getRecaptchaToken, verifyRecaptcha } from "recaptcha-next/server";
+import type { VerificationFailureReason } from "recaptcha-next/server";
 
-export async function submitAction(_previous: unknown, formData: FormData) {
-  const result = await verifyRecaptcha(getRecaptchaToken(formData), {
-    expectedAction: "contact",
-    expectedHostname: "example.com",
-  });
-  return { success: result.success, reason: result.success ? null : result.reason };
+export interface SubmitState {
+  success: boolean | null;
+  reason: VerificationFailureReason | null;
+}
+
+export async function sendMessage(
+  _previous: SubmitState,
+  formData: FormData,
+): Promise<SubmitState> {
+  const result = await verifyRecaptcha(getRecaptchaToken(formData), { expectedAction: "contact" });
+  if (!result.success) return { success: false, reason: result.reason };
+  // Handle the message only after verification succeeds.
+  return { success: true, reason: null };
 }
 ```
 
@@ -60,34 +73,31 @@ Google returns the action and the hostname the token was made for. Pass `expecte
 
 A token works once. Google spends it on the first check, so a second check with the same token is refused. Google reports that as `rejected-by-google`, and the usual code is `timeout-or-duplicate`.
 
-When the browser builds the form's data for a submit, `RecaptchaField` asks for a new token. The new one is ready a moment later, so a visitor who was refused can send the form again without reloading the page. A canceled submit, such as one stopped by validation, renews nothing. The timer still renews the token every 90 seconds. A field outside a `<form>` renews on the timer only.
+When the browser builds the form's data for a submit, `RecaptchaField` asks for a new token. The new one is ready a moment later, so a visitor who was refused can send the form again without reloading the page. A canceled submit, such as one stopped by validation, renews nothing. The timer still renews the token every 90 seconds. A field outside a `<form>` renews on the timer only. The field asks for a token only when one was spent, so reading the form while it is already empty or while a request is in flight asks for nothing, and a `formdata` event from another form, including one nested inside this one, is ignored.
 
 Reading the form with `new FormData(form)` also fires that event, so it renews the token too, and the token in that `FormData` is the one that was spent. Read the form once, at submit time, and send that same `FormData`. A `FormData` built later, after the renewal, carries the new token, but the first one is no longer valid.
 
-A version without this renewal needs the field to mount again after each server answer. Change its `key`, and the field asks for a new token:
+The package owns this lifecycle. Keep `RecaptchaField` mounted; a changing `key`, local reset hook
+or manual hidden-token copy is unnecessary. Upgrade an older version rather than recreating renewal
+in the application.
 
-```tsx
-export function ContactForm() {
-  const [state, formAction] = useActionState(submitAction, {
-    success: null,
-    reason: null,
-    attempt: 0,
-  });
-  return (
-    <form action={formAction}>
-      <input name="message" />
-      <RecaptchaField key={state.attempt} action="contact" />
-      <button type="submit">Send</button>
-    </form>
-  );
-}
-```
+## What is retried
 
-The action then returns `attempt: previous.attempt + 1` with each answer.
+The package retries script loading and token generation. It does not replay a failed verification
+request or resubmit the Server Action, message, lead or payment. After a refusal, the visitor submits
+again with the field's new token; the application handles its own business operation once.
+
+- Script loading, including `grecaptcha.ready`, has a 15-second deadline per attempt.
+- `RecaptchaField` token generation has a ten-second deadline. Failed attempts wait 5, 10, 20 and
+  then 30 seconds between retries, returning to the first wait after success.
+- The default server's request to Google has a five-second deadline, including its response body.
+  Failure returns `request-failed` without another request using the same token.
+
+See [Client API](api-client.md) for the lower-level `useRecaptcha` contract.
 
 ## Refusal reasons
 
-`verifyRecaptcha` returns one of these reasons when it refuses. Show the visitor a message that says what to do next, and keep the reason in your logs.
+`verifyRecaptcha` returns one of these reasons when it refuses. Show the visitor a message that says what to do next. The default verifier records the reason in its own failure log.
 
 | Reason               | What it means                                                                      | What the visitor should see                                              |
 | -------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
@@ -109,33 +119,39 @@ The score must be a finite number from 0 through 1, including at `minScore: 0`.
 
 ### Why a real visitor can score low
 
-Google scores the visit, not the person. A visitor can score below 0.5 when:
+When investigating unexpected scores, compare these contexts with the package's refusal records:
 
-- the browser blocks third-party storage, as some privacy settings and private windows do,
-- the visitor uses a VPN or a proxy,
-- the browser profile is new, so Google has no history for it.
+- browser storage and privacy settings,
+- VPN or proxy use,
+- new browser profiles.
 
-### Log the score and the error codes
+These are diagnostic contexts, not proof of the cause of an individual refusal. Google notes that
+scores in staging or a new implementation may differ from production; test scores can also be
+inaccurate without real traffic. Use the site's actual traffic when choosing thresholds. See
+[reCAPTCHA v3 guidance](https://developers.google.com/recaptcha/docs/v3) and the
+[testing FAQ](https://developers.google.com/recaptcha/docs/faq/).
 
-The reason, the score and the error codes are not secret, so log them on every refusal. Never log the token.
+### Read the package's failure records
+
+The default `verifyRecaptcha` records every refused check once as
+`[recaptcha-next] verification failed`, with `reason`, `score` and `errorCodes`. It excludes the token,
+secret and form fields. Applications consume the typed result and show their own visitor message;
+they do not need to duplicate the failure record.
 
 ```ts
 const result = await verifyRecaptcha(getRecaptchaToken(formData), { expectedAction: "contact" });
 if (!result.success) {
-  console.warn("reCAPTCHA refused", {
-    reason: result.reason,
-    score: result.score,
-    errorCodes: result.errorCodes,
-  });
   return { success: false, reason: result.reason };
 }
 ```
 
-Google's list of error codes is in its siteverify documentation.
+Custom verifiers built with `createVerifyRecaptcha` return the same typed results and leave
+observation to their caller. That advanced factory does not use the default logger. Never include
+a token or secret in custom logs. Google's list of error codes is in its siteverify documentation.
 
 ### Tune minScore
 
-Start with the default. Log the scores of the refused visits for a while. If real visitors who go on to complete the form score below the threshold, lower `minScore` for that form. Raise it for a form where spam costs more, such as a form that starts a sales process.
+Start with the default. Review the scores in the package's refusal records for a while. If real visitors who go on to complete the form score below the threshold, lower `minScore` for that form. Raise it for a form where spam costs more, such as a form that starts a sales process.
 
 ## The console message
 
@@ -143,9 +159,12 @@ Start with the default. Log the scores of the refused visits for a while. If rea
 
 ## When the secret is missing
 
-With the default server, a missing secret returns `missing-secret` unless
+A missing token always returns `missing-token`, before the secret is checked.
+With a present token, a missing secret returns `missing-secret` unless
 `NODE_ENV` is exactly `"development"` or `"test"`. Only those modes allow a skip
 with a warning. An absent variable, an empty value or `"staging"` requires the secret.
 
-`isRecaptchaEnabled()` follows the same policy. A guard using this helper therefore
-cannot skip verification merely because a production or unknown environment has no secret.
+`isRecaptchaEnabled()` describes the secret policy; it is not a replacement for verification.
+Always call `verifyRecaptcha` in the action, as shown above. Guarding that call with
+`isRecaptchaEnabled()` would also bypass the missing-token check in an unconfigured development
+environment.

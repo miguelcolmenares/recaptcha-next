@@ -56,8 +56,8 @@ Tests that need a real Google key skip themselves when the keys are missing.
 - `peerDependencies` list only majors that the tests run. Narrow first, widen with evidence.
 - Every subpath must resolve under `node10`, `node16` and `bundler`. `verify:package` checks all three.
 - A dev tool must not cap TypeScript in its peer range. One exception is documented in `.github/dependabot.yml`.
-- A callback prop must never restart an effect. Keep callbacks in refs.
-- Loading a script is not the same as the global being ready. Wait for `grecaptcha.ready`.
+- A callback prop must never restart an effect. Keep callbacks in refs. A numeric prop that only sets a delay (`refreshIntervalMs`) is read from a ref too. Consumer callbacks run last, after the field's own state and timers are updated, and only through `callSafely`, which logs a static message and the known prop name, never the thrown value, stack or callback argument, and never rethrows.
+- Loading a script is not the same as initializing the API. Wait for `grecaptcha.ready`. A failed initialization removes its unusable tag so retry can load a fresh script; a wrapper deadline alone keeps the pending tag for late recovery.
 - Never unload Google's script when a component unmounts. Tested with real Google: removing the tag and
   loading it again after a client-side navigation left duplicate badges and extra scripts, and sometimes a
   `window.grecaptcha` with no tag. A stubbed script hides this, so the navigation specs run against real Google too.
@@ -71,8 +71,10 @@ Tests that need a real Google key skip themselves when the keys are missing.
 ## Tokens and refusals
 
 - A reCAPTCHA token is single use. Google spends it on the first check.
-- `RecaptchaField` renews the token on the `formdata` event, which fires when a submit builds the form's data (a canceled submit does not). `new FormData(form)` fires it too, so it spends the token: read the form once, at submit time. Code that builds its own `FormData` must call `execute()` again before each attempt.
-- On a refusal, log `reason`, `score` and `errorCodes`. They are not secret.
+- `RecaptchaField` renews the token on the `formdata` event, which fires when a submit builds the form's data (a canceled submit does not). `new FormData(form)` fires it too, so it spends the token: read the form once, at submit time. A renewal is asked for only when the input held a token and no request is in flight, and `formdata` from any other form (including a nested one) is ignored. Build `new FormData(form)` when a form element exists, then normalize that payload. Do not copy its hidden token manually or remount the field after server answers. A payload without a form element can use `useRecaptcha().execute()` before each attempt.
+- The default `verifyRecaptcha` owns refusal logging: `reason`, `score` and `errorCodes`, with no token, secret or form fields. Consume its typed result without adding duplicate failure logs. Custom verifiers built with `createVerifyRecaptcha` leave observation to their caller.
+- Retries belong to script loading and field token generation. The default server checks Google once, with a five-second deadline, and never replays a lead or other business submission. `useRecaptcha().execute()` is lower level: it has no field-owned generation deadline, retry, expiry or form-read renewal.
+- Always call `verifyRecaptcha` in a Server Action; `isRecaptchaEnabled()` is configuration diagnostics, not a verification bypass. Missing tokens are rejected before secret handling.
 - Never log the token, and never log the secret key.
 
 ## Commits

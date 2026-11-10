@@ -16,12 +16,14 @@ const transform = {
 module.exports = {
   projects: [
     {
+      roots: ["<rootDir>/src"],
       displayName: "unit",
       testEnvironment: "node",
       transform,
       testMatch: ["<rootDir>/src/__tests__/*.test.ts", "<rootDir>/src/__tests__/*.test.tsx"],
     },
     {
+      roots: ["<rootDir>/src"],
       displayName: "integration",
       testEnvironment: "node",
       transform,

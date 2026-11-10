@@ -34,15 +34,23 @@ The site key is public and is read in the browser. The secret key stays on the s
 // app/ContactForm.tsx
 "use client";
 
+import { useActionState } from "react";
 import { RecaptchaField } from "recaptcha-next/client";
 import { sendMessage } from "./actions";
+import type { SubmitState } from "./actions";
+
+const initialState: SubmitState = { success: null, reason: null };
 
 export function ContactForm() {
+  const [state, formAction, pending] = useActionState(sendMessage, initialState);
   return (
-    <form action={sendMessage}>
+    <form action={formAction}>
       <input name="message" />
       <RecaptchaField action="contact" />
-      <button type="submit">Send</button>
+      <button type="submit" disabled={pending}>
+        Send
+      </button>
+      {state.success === false && <p role="alert">Could not verify your visit. Try again.</p>}
     </form>
   );
 }
@@ -57,13 +65,21 @@ Read the token from the `FormData` and check it with the same `action` name.
 "use server";
 
 import { getRecaptchaToken, verifyRecaptcha } from "recaptcha-next/server";
+import type { VerificationFailureReason } from "recaptcha-next/server";
 
-export async function sendMessage(formData: FormData) {
+export interface SubmitState {
+  success: boolean | null;
+  reason: VerificationFailureReason | null;
+}
+
+export async function sendMessage(
+  _previous: SubmitState,
+  formData: FormData,
+): Promise<SubmitState> {
   const result = await verifyRecaptcha(getRecaptchaToken(formData), { expectedAction: "contact" });
-  if (!result.success) {
-    return { error: result.reason };
-  }
-  // ...handle the message
+  if (!result.success) return { success: false, reason: result.reason };
+  // Handle the message only after verification succeeds.
+  return { success: true, reason: null };
 }
 ```
 

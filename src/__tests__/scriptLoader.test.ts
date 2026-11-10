@@ -24,6 +24,7 @@ let counter = 0;
 let key = "";
 
 beforeEach(() => {
+  jest.useFakeTimers();
   key = `key-${++counter}`;
 });
 
@@ -78,12 +79,51 @@ describe("loadRecaptcha", () => {
     expect(retry).not.toBe(a);
   });
 
-  it("rejects when the script loads but grecaptcha is missing, then allows a retry", async () => {
-    const promise = loadRecaptcha(key);
-    scripts()[0]?.dispatchEvent(new Event("load"));
-    await expect(promise).rejects.toThrow("Failed to load reCAPTCHA script");
-    await Promise.resolve();
-    expect(loadRecaptcha(key)).not.toBe(promise);
+  it.each(["missing-api", "missing-ready", "throwing-ready"])(
+    "replaces a loaded script with unusable API: %s",
+    async (failure) => {
+      const promise = loadRecaptcha(key);
+      const firstTag = scripts()[0];
+      if (failure === "missing-ready") {
+        window.grecaptcha = { execute: jest.fn() } as unknown as Grecaptcha;
+      } else if (failure === "throwing-ready") {
+        window.grecaptcha = {
+          ready: () => {
+            throw new Error("ready failed");
+          },
+          execute: jest.fn(),
+        };
+      }
+      firstTag?.dispatchEvent(new Event("load"));
+      await expect(promise).rejects.toThrow();
+      expect(firstTag?.isConnected).toBe(false);
+      expect(scripts()).toHaveLength(0);
+
+      const retry = loadRecaptcha(key);
+      expect(scripts()).toHaveLength(1);
+      expect(scripts()[0]).not.toBe(firstTag);
+      const fake = fakeGrecaptcha();
+      finishLoad(fake);
+      fake.fireReady();
+      expect(await retry).toBe(fake.api);
+    },
+  );
+
+  it("replaces a completion-marked layout tag when its API is absent", async () => {
+    const firstTag = document.createElement("script");
+    firstTag.src = `https://www.google.com/recaptcha/api.js?render=${key}`;
+    firstTag.dataset.recaptchaLoaded = "true";
+    document.head.appendChild(firstTag);
+    await expect(loadRecaptcha(key)).rejects.toThrow("Failed to load reCAPTCHA script");
+    expect(firstTag.isConnected).toBe(false);
+
+    const retry = loadRecaptcha(key);
+    expect(scripts()).toHaveLength(1);
+    expect(scripts()[0]).not.toBe(firstTag);
+    const fake = fakeGrecaptcha();
+    finishLoad(fake);
+    fake.fireReady();
+    expect(await retry).toBe(fake.api);
   });
 
   it("keeps the script and the promise for the life of the page", async () => {
@@ -120,7 +160,7 @@ describe("loadRecaptcha", () => {
     const ready = loadRecaptcha(key);
     const received = jest.fn();
     void ready.then(received);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Promise.resolve();
     expect(received).not.toHaveBeenCalled();
     expect(scripts()).toHaveLength(1);
 
@@ -197,7 +237,7 @@ describe("loadRecaptcha", () => {
       const ready = loadRecaptcha(key);
       const resolved = jest.fn();
       void ready.then(resolved);
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await Promise.resolve();
       expect(resolved).not.toHaveBeenCalled();
       expect(previousRequest).not.toHaveBeenCalled();
 
@@ -229,6 +269,40 @@ describe("loadRecaptcha", () => {
     api.fireReady();
     expect(await loadRecaptcha(key)).toBe(api.api);
     expect(scripts()).toHaveLength(1);
+  });
+
+  it("times out a fresh tag and shares its later successful load with a retry", async () => {
+    const initial = loadRecaptcha(key);
+    const rejected = expect(initial).rejects.toThrow("Failed to load reCAPTCHA script");
+    const tag = scripts()[0]!;
+    const subscribe = jest.spyOn(tag, "addEventListener");
+    await jest.advanceTimersByTimeAsync(15_000);
+    await rejected;
+
+    const retry = loadRecaptcha(key);
+    expect(retry).not.toBe(initial);
+    expect(scripts()).toHaveLength(1);
+    expect(subscribe).not.toHaveBeenCalled();
+    const api = fakeGrecaptcha();
+    finishLoad(api);
+    api.fireReady();
+    expect(await retry).toBe(api.api);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it("bounds readiness too and recovers when the original ready callback finally runs", async () => {
+    const api = fakeGrecaptcha();
+    const initial = loadRecaptcha(key);
+    finishLoad(api);
+    const rejected = expect(initial).rejects.toThrow("Failed to load reCAPTCHA script");
+    await jest.advanceTimersByTimeAsync(15_000);
+    await rejected;
+
+    const retry = loadRecaptcha(key);
+    expect(scripts()).toHaveLength(1);
+    api.fireReady();
+    expect(await retry).toBe(api.api);
+    expect(jest.getTimerCount()).toBe(0);
   });
 
   it("keeps a separate load for each site key", () => {

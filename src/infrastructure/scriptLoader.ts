@@ -16,13 +16,13 @@ const LOAD_ERROR_MESSAGE = "Failed to load reCAPTCHA script";
 
 // One promise per site key, kept for the life of the page.
 //
-// A successfully loaded script is never removed. Google keeps its own state (badge, iframes, extra
+// A successfully initialized script is never removed. Google keeps its own state (badge, iframes, extra
 // scripts), and removing our tag does not reset it. Tested against real Google: loading it again
 // after a client-side navigation left duplicate badges and extra scripts, and sometimes a global
 // with no script tag. Loading once, as a plain <script> in a layout would, avoids all of that.
 const loads = new Map<string, Promise<Grecaptcha>>();
 const registrations = new WeakMap<HTMLScriptElement, Promise<Grecaptcha>>();
-const ADOPTED_SCRIPT_TIMEOUT_MS = 15_000;
+const SCRIPT_TIMEOUT_MS = 15_000;
 
 function whenReady(grecaptcha: Grecaptcha): Promise<Grecaptcha> {
   return new Promise((resolve) => grecaptcha.ready(() => resolve(grecaptcha)));
@@ -59,38 +59,40 @@ function readyApi(): Promise<Grecaptcha> {
 function registerScript(element: HTMLScriptElement): Promise<Grecaptcha> {
   const registered = registrations.get(element);
   if (registered) return registered;
-  if (element.dataset.recaptchaLoaded === "true") return readyApi();
-
-  const registration = new Promise<Grecaptcha>((resolve, reject) => {
-    function detach() {
-      element.removeEventListener("load", loaded);
-      element.removeEventListener("error", failed);
-    }
-    function loaded() {
-      detach();
-      element.dataset.recaptchaLoaded = "true";
-      resolve(readyApi());
-    }
-    function failed() {
-      detach();
-      element.remove();
-      reject(new Error(LOAD_ERROR_MESSAGE));
-    }
-    element.addEventListener("load", loaded, { once: true });
-    element.addEventListener("error", failed, { once: true });
-  });
+  const registration =
+    element.dataset.recaptchaLoaded === "true"
+      ? readyApi()
+      : new Promise<Grecaptcha>((resolve, reject) => {
+          function detach() {
+            element.removeEventListener("load", loaded);
+            element.removeEventListener("error", failed);
+          }
+          function loaded() {
+            detach();
+            element.dataset.recaptchaLoaded = "true";
+            resolve(readyApi());
+          }
+          function failed() {
+            detach();
+            element.remove();
+            reject(new Error(LOAD_ERROR_MESSAGE));
+          }
+          element.addEventListener("load", loaded, { once: true });
+          element.addEventListener("error", failed, { once: true });
+        });
   registrations.set(element, registration);
-  void registration.catch(() => registrations.delete(element));
+  void registration.catch(() => {
+    registrations.delete(element);
+    // An executed tag with no usable API cannot recover by waiting for its old load event.
+    element.remove();
+  });
   return registration;
 }
 
-/** Reject uncertain layout loads without treating any existing global as confirmation. */
-function adoptScript(element: HTMLScriptElement): Promise<Grecaptcha> {
+/** Bound this wait without removing a tag whose initialization is still pending. */
+function waitForScript(element: HTMLScriptElement): Promise<Grecaptcha> {
   return new Promise((resolve, reject) => {
-    const deadline = setTimeout(
-      () => reject(new Error(LOAD_ERROR_MESSAGE)),
-      ADOPTED_SCRIPT_TIMEOUT_MS,
-    );
+    const deadline = setTimeout(() => reject(new Error(LOAD_ERROR_MESSAGE)), SCRIPT_TIMEOUT_MS);
     void registerScript(element).then(
       (api) => {
         clearTimeout(deadline);
@@ -109,14 +111,14 @@ function start(siteKey: string): Promise<Grecaptcha> {
     return Promise.reject(new Error(LOAD_ERROR_MESSAGE));
   }
   const layoutScript = findLayoutScript(siteKey);
-  if (layoutScript) return adoptScript(layoutScript);
+  if (layoutScript) return waitForScript(layoutScript);
 
   const element = document.createElement("script");
   element.src = `${RECAPTCHA_SCRIPT_URL}?render=${encodeURIComponent(siteKey)}`;
   element.async = true;
-  const registration = registerScript(element);
+  const pending = waitForScript(element);
   document.head.appendChild(element);
-  return registration;
+  return pending;
 }
 
 /**

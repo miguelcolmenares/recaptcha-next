@@ -8,7 +8,9 @@ Everything in `recaptcha-next/server`, plus the pure rule exported by the root e
 
 ## `verifyRecaptcha(token, options?)`
 
-Checks a token with Google and returns a result. It does not throw.
+Checks a token with Google and returns a result. It does not throw. The default gateway waits
+at most five seconds, including reading the response body. A timeout returns `request-failed`;
+the verifier does not replay the request or the business submission.
 
 | Option             | Default                | Description                                    |
 | ------------------ | ---------------------- | ---------------------------------------------- |
@@ -42,15 +44,23 @@ Failure reasons:
 ## Other functions
 
 - `getRecaptchaToken(formData, field?)` returns the token or `null`, also when the field is empty.
-- `isRecaptchaEnabled()` returns `true` when verification is required. It returns
+- `isRecaptchaEnabled()` reports the runtime secret-configuration policy. It returns
   `false` only in explicit development or test mode without a secret.
 - `createVerifyRecaptcha(deps)` and `createGoogleVerifyGateway(options)` build a custom verifier. See [Testing](testing.md).
 
-The default server accepts missing-secret bypass only for `NODE_ENV` values
+Missing tokens return `missing-token` before checking configuration. For a present token,
+the default server accepts missing-secret bypass only for `NODE_ENV` values
 `"development"` and `"test"`. Unknown or absent values require a configured secret.
+Use `isRecaptchaEnabled()` for configuration diagnostics, not to guard verification. The standard
+Server Action always calls `verifyRecaptcha`, including in development.
+
 For custom verifiers, the injected `isProduction` policy decides whether a secret
 is required; `true` enforces it and `false` allows a warning and skip.
 
 ## Root entry
 
 `recaptcha-next` exports the constants, the result types and the pure `evaluateResponse` rule. It has no React and no browser code, so it is safe in Server Components.
+
+The default `verifyRecaptcha` logs failed checks as `[recaptcha-next] verification failed` with
+`reason`, `score` and `errorCodes`. It excludes tokens, secrets and form fields.
+The `createVerifyRecaptcha` factory returns typed results and leaves logging to its caller.
