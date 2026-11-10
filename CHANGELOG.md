@@ -11,8 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- The release workflow uses the same docs-sitekit 0.3.0 template and social-card generation as
-  the documentation workflow, so publishing a package keeps the current site and its share image.
+- The release workflow uses the same docs-sitekit 0.3.0 validation and social-card generation as
+  the documentation workflow, so publishing a package checks the current site and includes its share image.
 
 - Callback failure logs contain only a static message and the callback prop name. Thrown values, messages, stacks and callback arguments are excluded because consumer errors can contain tokens or private data. Exception isolation and renewals remain unchanged.
 
