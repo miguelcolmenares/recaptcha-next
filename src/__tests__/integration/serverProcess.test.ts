@@ -41,6 +41,9 @@ withBuild("packaged server environment policy", () => {
           reason: "missing-secret-in-development",
         });
       } else {
+        expect(child.stderr).toContain("[recaptcha-next] verification failed");
+        expect(child.stderr).toContain("missing-secret");
+        expect(child.stderr).not.toContain("token");
         expect(output).toEqual({
           required: true,
           result: { success: false, reason: "missing-secret" },

@@ -32,9 +32,10 @@ If the tag finishes before a field mounts, its successful load handler must set
 
 Do not set the marker before loading succeeds.
 
-An unconfirmed existing tag fails after 15 seconds. This includes a tag that
-finished before observation without the completion marker. Failed tags are removed
-so a retry can load again, and late successful events remain reusable.
+Every attempt has a 15-second deadline, including fresh tags and `grecaptcha.ready`.
+An existing tag that finished before observation without the completion marker also times out.
+Failed tags are removed so a retry can load again. A timed-out tag is kept, so a late load or
+readiness callback is reused by the next attempt without another script or event registration.
 
 ## The badge stays visible
 

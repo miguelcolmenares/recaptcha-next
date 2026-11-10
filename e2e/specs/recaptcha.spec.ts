@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { hasRealKeys, result, stubGoogle, tokenInput } from "./support";
+import { GOOGLE_SCRIPT, hasRealKeys, result, stubGoogle, tokenInput } from "./support";
 
 // The stub echoes the site key the fixture was built with, so match the shape, not the key.
 const STUB_TOKEN = /^stub-token:.+:contact$/;
@@ -21,6 +21,49 @@ test.describe("with a stubbed Google script", () => {
     // A made-up token is never valid, but the server must have received it.
     await expect(result(page)).toContainText('"tokenReceived":true');
     await expect(result(page)).toContainText('"success":false');
+  });
+
+  test("a long refresh interval renews before the token expires", async ({ page }) => {
+    await page.clock.install();
+    await page.route(GOOGLE_SCRIPT, (route) =>
+      route.fulfill({
+        contentType: "application/javascript",
+        body: `let issued = 0;
+        window.grecaptcha = {
+          ready: function (callback) { callback(); },
+          execute: function () { return Promise.resolve("token-" + ++issued); }
+        };`,
+      }),
+    );
+    await page.goto("/long-refresh");
+    await expect(tokenInput(page)).toHaveValue("token-1");
+    await page.clock.fastForward(110_001);
+    await expect(tokenInput(page)).toHaveValue("token-2");
+  });
+
+  test("readiness has a deadline and a late callback is reused by the retry", async ({ page }) => {
+    await page.clock.install();
+    await page.route(GOOGLE_SCRIPT, (route) =>
+      route.fulfill({
+        contentType: "application/javascript",
+        body: `var waiting = [];
+        window.releaseReady = function () { waiting.splice(0).forEach(function (cb) { cb(); }); };
+        window.grecaptcha = {
+          ready: function (callback) { waiting.push(callback); },
+          execute: function () { return Promise.resolve("recovered-token"); }
+        };`,
+      }),
+    );
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+    await expect(tokenInput(page)).toHaveValue("");
+    await page.clock.fastForward(15_001);
+    await page.evaluate(() => (window as unknown as { releaseReady: () => void }).releaseReady());
+    // The timed-out attempt cannot issue a token. The retry reuses its completed registration.
+    await expect(tokenInput(page)).toHaveValue("");
+    await page.clock.fastForward(5_001);
+    await expect(tokenInput(page)).toHaveValue("recovered-token");
+    await expect(page.locator('script[src*="recaptcha/api.js"]')).toHaveCount(1);
   });
 
   test("lazy mode loads Google only after the form scrolls into view", async ({ page }) => {

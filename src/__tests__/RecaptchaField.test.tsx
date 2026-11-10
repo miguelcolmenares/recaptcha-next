@@ -1561,6 +1561,63 @@ describe("RecaptchaField", () => {
       expect(value()).toBe("token-2");
     });
 
+    it("renews a replacement consumed while the previous read's task is still queued", async () => {
+      jest.useFakeTimers();
+      let form: HTMLFormElement | null = null;
+      let generated = 0;
+      execute.mockImplementation(async () => `token-${++generated}`);
+      // The read queues a task immediately before the periodic request produces token-2.
+      setTimeout(() => form && read(form), 1000);
+      const { container } = render(
+        <form>
+          <RecaptchaField
+            action="a"
+            siteKey={site}
+            refreshIntervalMs={1000}
+            onTokenGenerated={(token) => {
+              if (token === "token-2" && form) read(form);
+            }}
+          />
+        </form>,
+      );
+      form = container.querySelector("form");
+      await act(async () => {
+        window.grecaptcha = { ready: (cb) => cb(), execute: execute as Grecaptcha["execute"] };
+        scripts()[0]?.dispatchEvent(new Event("load"));
+      });
+      await tick();
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(1001);
+      });
+      await tick();
+      expect(execute).toHaveBeenCalledTimes(3);
+      expect(hiddenInput(container)?.value).toBe("token-3");
+    });
+
+    it("starts a renewal by 110 seconds even when the requested interval is longer", async () => {
+      let generated = 0;
+      execute.mockImplementation(async () => `token-${++generated}`);
+      const { value } = await mountForm(180_000);
+      await advance(109_999);
+      expect(execute).toHaveBeenCalledTimes(1);
+      await advance(1);
+      expect(execute).toHaveBeenCalledTimes(2);
+      expect(value()).toBe("token-2");
+    });
+
+    it("clears the pending request deadline immediately when the field unmounts", async () => {
+      const { unmount } = await mountForm(1000);
+      execute.mockImplementationOnce(() => new Promise<string>(() => {}));
+      await advance(1000);
+      expect(execute).toHaveBeenCalledTimes(2);
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+      unmount();
+      await tick();
+      // Flush Testing Library's zero-delay act bookkeeping, without advancing the request deadline.
+      jest.advanceTimersByTime(0);
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
     it("ignores a formdata event from a form nested inside its own form", async () => {
       const { container, form, value } = await mountForm(1000);
       const nested = document.createElement("form");

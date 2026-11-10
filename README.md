@@ -83,6 +83,10 @@ need the field to mount again after each server answer: give `<RecaptchaField>` 
 | `missing-secret`     | The server requires `RECAPTCHA_SECRET_KEY` and has none.              |
 | `request-failed`     | The request to Google failed.                                         |
 
+The default `verifyRecaptcha` logs failed checks with `reason`, `score` and `errorCodes`. It never
+logs the token, secret or form fields. Custom verifiers built with `createVerifyRecaptcha` return
+the same typed failures and leave logging to their caller.
+
 A real visitor can score below the default for a reason on their side: a browser that blocks third-party
 storage, a VPN, or a new browser profile. Log `reason`, `score` and `errorCodes` on a refusal, never the token,
 and tune `minScore` from your own logs. The message `requestStorageAccess: Permission denied` in the console
@@ -102,7 +106,7 @@ for the full table and examples.
 | `name`              | `g-recaptcha-response`           | Name of the hidden input.                                                                              |
 | `lazy`              | `false`                          | Load Google's script only when the form is near the viewport.                                          |
 | `lazyRootMargin`    | `200px`                          | How early lazy loading starts.                                                                         |
-| `refreshIntervalMs` | `90000`                          | Time between token refreshes. Google tokens last two minutes.                                          |
+| `refreshIntervalMs` | `90000`                          | Delay before token renewal, capped at 110 seconds.                                                     |
 | `onTokenGenerated`  |                                  | Called with each new token, already in the hidden input. A throw is logged, not rethrown.              |
 | `onError`           |                                  | Called on each failed script load, token or renewal. Failures are retried, each attempt reported once. |
 
@@ -164,8 +168,9 @@ finishes loading before the field mounts, mark that script after its load succee
 
 For Next.js `<Script>`, set this attribute on the element from `onLoad` or
 `onReady`. Set it only after successful loading, never as an initial attribute.
-An unmarked existing tag must emit its own load event within 15 seconds.
-An error or timeout rejects the load, without using another key's global.
+Each load attempt, including a fresh tag and its readiness callback, has a 15-second deadline.
+An error or timeout rejects the load, without using another key's global. Timed-out tags stay
+available for a late load or readiness callback, so retrying does not add duplicate scripts.
 Already-finished, unmarked tags time out because their load event cannot repeat.
 
 ## Custom `FormData`

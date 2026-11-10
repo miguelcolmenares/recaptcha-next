@@ -24,6 +24,7 @@ let counter = 0;
 let key = "";
 
 beforeEach(() => {
+  jest.useFakeTimers();
   key = `key-${++counter}`;
 });
 
@@ -120,7 +121,7 @@ describe("loadRecaptcha", () => {
     const ready = loadRecaptcha(key);
     const received = jest.fn();
     void ready.then(received);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Promise.resolve();
     expect(received).not.toHaveBeenCalled();
     expect(scripts()).toHaveLength(1);
 
@@ -197,7 +198,7 @@ describe("loadRecaptcha", () => {
       const ready = loadRecaptcha(key);
       const resolved = jest.fn();
       void ready.then(resolved);
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await Promise.resolve();
       expect(resolved).not.toHaveBeenCalled();
       expect(previousRequest).not.toHaveBeenCalled();
 
@@ -229,6 +230,40 @@ describe("loadRecaptcha", () => {
     api.fireReady();
     expect(await loadRecaptcha(key)).toBe(api.api);
     expect(scripts()).toHaveLength(1);
+  });
+
+  it("times out a fresh tag and shares its later successful load with a retry", async () => {
+    const initial = loadRecaptcha(key);
+    const rejected = expect(initial).rejects.toThrow("Failed to load reCAPTCHA script");
+    const tag = scripts()[0]!;
+    const subscribe = jest.spyOn(tag, "addEventListener");
+    await jest.advanceTimersByTimeAsync(15_000);
+    await rejected;
+
+    const retry = loadRecaptcha(key);
+    expect(retry).not.toBe(initial);
+    expect(scripts()).toHaveLength(1);
+    expect(subscribe).not.toHaveBeenCalled();
+    const api = fakeGrecaptcha();
+    finishLoad(api);
+    api.fireReady();
+    expect(await retry).toBe(api.api);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it("bounds readiness too and recovers when the original ready callback finally runs", async () => {
+    const api = fakeGrecaptcha();
+    const initial = loadRecaptcha(key);
+    finishLoad(api);
+    const rejected = expect(initial).rejects.toThrow("Failed to load reCAPTCHA script");
+    await jest.advanceTimersByTimeAsync(15_000);
+    await rejected;
+
+    const retry = loadRecaptcha(key);
+    expect(scripts()).toHaveLength(1);
+    api.fireReady();
+    expect(await retry).toBe(api.api);
+    expect(jest.getTimerCount()).toBe(0);
   });
 
   it("keeps a separate load for each site key", () => {

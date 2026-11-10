@@ -22,7 +22,7 @@ const LOAD_ERROR_MESSAGE = "Failed to load reCAPTCHA script";
 // with no script tag. Loading once, as a plain <script> in a layout would, avoids all of that.
 const loads = new Map<string, Promise<Grecaptcha>>();
 const registrations = new WeakMap<HTMLScriptElement, Promise<Grecaptcha>>();
-const ADOPTED_SCRIPT_TIMEOUT_MS = 15_000;
+const SCRIPT_TIMEOUT_MS = 15_000;
 
 function whenReady(grecaptcha: Grecaptcha): Promise<Grecaptcha> {
   return new Promise((resolve) => grecaptcha.ready(() => resolve(grecaptcha)));
@@ -84,13 +84,10 @@ function registerScript(element: HTMLScriptElement): Promise<Grecaptcha> {
   return registration;
 }
 
-/** Reject uncertain layout loads without treating any existing global as confirmation. */
-function adoptScript(element: HTMLScriptElement): Promise<Grecaptcha> {
+/** Bound the wait for this tag and its readiness callback, without removing a loaded script. */
+function waitForScript(element: HTMLScriptElement): Promise<Grecaptcha> {
   return new Promise((resolve, reject) => {
-    const deadline = setTimeout(
-      () => reject(new Error(LOAD_ERROR_MESSAGE)),
-      ADOPTED_SCRIPT_TIMEOUT_MS,
-    );
+    const deadline = setTimeout(() => reject(new Error(LOAD_ERROR_MESSAGE)), SCRIPT_TIMEOUT_MS);
     void registerScript(element).then(
       (api) => {
         clearTimeout(deadline);
@@ -109,14 +106,14 @@ function start(siteKey: string): Promise<Grecaptcha> {
     return Promise.reject(new Error(LOAD_ERROR_MESSAGE));
   }
   const layoutScript = findLayoutScript(siteKey);
-  if (layoutScript) return adoptScript(layoutScript);
+  if (layoutScript) return waitForScript(layoutScript);
 
   const element = document.createElement("script");
   element.src = `${RECAPTCHA_SCRIPT_URL}?render=${encodeURIComponent(siteKey)}`;
   element.async = true;
-  const registration = registerScript(element);
+  const pending = waitForScript(element);
   document.head.appendChild(element);
-  return registration;
+  return pending;
 }
 
 /**

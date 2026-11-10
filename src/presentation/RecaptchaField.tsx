@@ -18,7 +18,7 @@ export interface RecaptchaFieldProps {
   lazy?: boolean;
   /** How early lazy loading starts, as a CSS margin. Defaults to `200px`. */
   lazyRootMargin?: string;
-  /** Milliseconds between token refreshes. Defaults to 90 seconds. A change applies from the next refresh. */
+  /** Milliseconds between refreshes, capped at 110 seconds. Defaults to 90 seconds. Changes apply to the next refresh. */
   refreshIntervalMs?: number;
   /**
    * Called on every new token, once the token is already in the hidden input, so reading or
@@ -43,16 +43,25 @@ const RETRY_MAX_DELAY_MS = 30_000;
 /** A token request that has not answered by then counts as failed, so the next one can start. */
 const EXECUTE_TIMEOUT_MS = 10_000;
 
-/** Rejects if `pending` has not settled within `ms`. The late result, if any, is ignored. */
-function withTimeout<T>(pending: Promise<T>, ms: number): Promise<T> {
+/** Stops waiting on timeout or lifecycle cancellation. Late results are ignored. */
+function withTimeout<T>(pending: Promise<T>, ms: number, signal: AbortSignal): Promise<T> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
   const expired = new Promise<never>((_, reject) => {
     timeout = setTimeout(
       () => reject(new Error(`reCAPTCHA did not answer within ${ms / 1000} seconds`)),
       ms,
     );
+    onAbort = () => {
+      clearTimeout(timeout);
+      reject(new Error("reCAPTCHA request was cancelled"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
   });
-  return Promise.race([pending, expired]).finally(() => clearTimeout(timeout));
+  return Promise.race([pending, expired]).finally(() => {
+    clearTimeout(timeout);
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+  });
 }
 
 /**
@@ -149,6 +158,7 @@ export function RecaptchaField({
   useEffect(() => {
     if (status !== "ready") return;
     let cancelled = false;
+    const cancellation = new AbortController();
     // Next refresh, or the retry after a failure. Only one of them is pending at a time.
     let timer: ReturnType<typeof setTimeout> | undefined;
     // The renewal after a form's data was read. It waits for the current task, so two
@@ -157,8 +167,6 @@ export function RecaptchaField({
     // Drops the token when its TTL passes. Cleared whenever the token is replaced or spent.
     let expiry: ReturnType<typeof setTimeout> | undefined;
     let inFlight = false;
-    // Counts the tokens issued, so a renewal task can tell that one arrived after the read.
-    let issuedCount = 0;
     let failures = 0;
 
     const refresh = async () => {
@@ -169,7 +177,7 @@ export function RecaptchaField({
       let next = "";
       let failure: Error | undefined;
       try {
-        next = await withTimeout(execute(), EXECUTE_TIMEOUT_MS);
+        next = await withTimeout(execute(), EXECUTE_TIMEOUT_MS, cancellation.signal);
       } catch (cause) {
         failure = cause instanceof Error ? cause : new Error(String(cause));
       } finally {
@@ -188,7 +196,6 @@ export function RecaptchaField({
         // value, so the render that follows changes nothing.
         if (inputRef.current) inputRef.current.value = next;
         setIssued({ key: tokenKey, value: next });
-        issuedCount += 1;
         clearTimeout(expiry);
         expiry = setTimeout(() => {
           // Clear only the token that was issued here, never a newer one.
@@ -201,7 +208,10 @@ export function RecaptchaField({
         failures += 1;
       }
       if (failure === undefined) {
-        timer = setTimeout(refresh, refreshIntervalRef.current);
+        timer = setTimeout(
+          refresh,
+          Math.min(refreshIntervalRef.current, TOKEN_TTL_MS - EXECUTE_TIMEOUT_MS),
+        );
       } else {
         const delay = Math.min(RETRY_DELAY_MS * 2 ** (failures - 1), RETRY_MAX_DELAY_MS);
         timer = setTimeout(refresh, delay);
@@ -224,11 +234,10 @@ export function RecaptchaField({
       if (inputRef.current) inputRef.current.value = "";
       setIssued(null);
       if (spent === "" || inFlight || renewal !== undefined) return;
-      const issuedBefore = issuedCount;
       renewal = setTimeout(() => {
         renewal = undefined;
-        // A request started after the read has delivered its token by now, and it was not read.
-        if (inFlight || issuedCount !== issuedBefore) return;
+        // Keep an unspent replacement. If it was read too, this task still owes a renewal.
+        if (inFlight || inputRef.current?.value !== "") return;
         void refresh();
       }, 0);
     };
@@ -243,6 +252,7 @@ export function RecaptchaField({
     const input = inputRef.current;
     return () => {
       cancelled = true;
+      cancellation.abort();
       clearTimeout(timer);
       clearTimeout(renewal);
       clearTimeout(expiry);

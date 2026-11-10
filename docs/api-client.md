@@ -17,7 +17,7 @@ Renders a hidden input and keeps a fresh token in it.
 | `name`              | `g-recaptcha-response`           | Name of the hidden input.                                                                              |
 | `lazy`              | `false`                          | Load Google's script only when the form is near the viewport.                                          |
 | `lazyRootMargin`    | `200px`                          | How early lazy loading starts.                                                                         |
-| `refreshIntervalMs` | `90000`                          | Time between token refreshes. Google tokens last two minutes.                                          |
+| `refreshIntervalMs` | `90000`                          | Delay before token renewal, capped at 110 seconds.                                                     |
 | `onTokenGenerated`  |                                  | Called with each new token, already in the hidden input. A throw is logged, not rethrown.              |
 | `onError`           |                                  | Called on each failed script load, token or renewal. Failures are retried, each attempt reported once. |
 
@@ -27,6 +27,10 @@ empty field, or reading while a request is already in flight, asks for nothing, 
 backoff. A canceled submit renews nothing, and a `formdata` event from another form, even one nested inside this one,
 is ignored. Reading the form with `new FormData(form)` also fires the event, so read it once, at submit time. A field
 outside a `<form>` renews on the timer only. A change of `refreshIntervalMs` applies from the next refresh.
+The delay is capped at 110 seconds, so renewal starts at least 10 seconds before expiry.
+A slow or failed renewal can still leave the field empty until a later request succeeds.
+If a replacement arrives before a pending renewal runs, it is kept while unspent; reading that replacement
+still results in a renewal. Changing the key or unmounting cancels the pending request deadline.
 
 A failed token request is retried after 5 seconds, then after 10, 20 and 30 seconds. A failed script load is retried
 with the same waits, until it works, the site key changes or the field unmounts, and a new key starts again at 5

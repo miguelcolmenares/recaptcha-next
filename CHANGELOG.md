@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The default server verifier logs failed checks with `reason`, `score` and `errorCodes`, without
+  logging the token, secret or submitted form fields.
+- A replacement consumed before an earlier form-read task runs is renewed immediately. An unspent
+  replacement is kept, avoiding an unnecessary Google request.
+- Refresh delays are capped at 110 seconds, starting renewal at least 10 seconds before token
+  expiry. A slow or failed renewal can still leave the field empty. Changing the action or site key, or unmounting, also clears that pending deadline.
 - `RecaptchaField` asks for a new token when the browser builds the form's data for a submit,
   so a visitor refused by the server can send the form again. A canceled submit renews nothing.
   A token works once. The field keeps its timer, and a field outside a form renews on the timer
@@ -48,7 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The domain rule accepts only finite numeric scores from 0 through 1.
 - Browser loading initializes each key independently. Matching layout tags wait
   for their own load event or require a completion marker set after successful loading.
-  Unconfirmed layout loads reject after 15 seconds; failed tags allow retries.
+  Every load, including a fresh tag and its readiness callback, rejects after 15 seconds;
+  retries reuse late successful loads without adding duplicate tags.
   The README and navigation guide explain the layout marker requirement.
 
 ### Changed

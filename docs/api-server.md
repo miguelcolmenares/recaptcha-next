@@ -54,3 +54,7 @@ is required; `true` enforces it and `false` allows a warning and skip.
 ## Root entry
 
 `recaptcha-next` exports the constants, the result types and the pure `evaluateResponse` rule. It has no React and no browser code, so it is safe in Server Components.
+
+The default `verifyRecaptcha` logs failed checks as `[recaptcha-next] verification failed` with
+`reason`, `score` and `errorCodes`. It excludes tokens, secrets and form fields.
+The `createVerifyRecaptcha` factory returns typed results and leaves logging to its caller.
