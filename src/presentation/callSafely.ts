@@ -3,7 +3,7 @@ const LOG_TAG = "[recaptcha-next]";
 
 /**
  * Calls a consumer's callback and keeps its failure away from the package. A callback that
- * throws is logged with `console.error` and never rethrown, so a bug in it cannot stop the
+ * throws is logged by its prop name only and never rethrown, so a bug in it cannot stop the
  * renewal loop, skip its timers, or reach a React error boundary.
  *
  * @param callback - The consumer's callback. Nothing happens when it is undefined.
@@ -13,11 +13,11 @@ const LOG_TAG = "[recaptcha-next]";
 export function callSafely<T>(
   callback: ((argument: T) => void) | undefined,
   argument: T,
-  name: string,
+  name: "onTokenGenerated" | "onError",
 ): void {
   try {
     callback?.(argument);
-  } catch (cause) {
-    console.error(`${LOG_TAG} ${name} threw`, cause);
+  } catch {
+    console.error(`${LOG_TAG} ${name} threw`);
   }
 }

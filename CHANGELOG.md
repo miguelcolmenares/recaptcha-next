@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Callback failure logs contain only a static message and the callback prop name. Thrown values, messages, stacks and callback arguments are excluded because consumer errors can contain tokens or private data. Exception isolation and renewals remain unchanged.
+
 - A script that loads without a usable reCAPTCHA API is removed before retrying, including a layout tag marked as loaded. Previously each retry reused the broken tag and could never recover. Pending scripts and readiness callbacks that only time out are still retained for late recovery.
 
 - Disabling lazy loading before an offscreen field becomes visible now starts loading; re-enabling lazy mode keeps that load and token lifecycle active.

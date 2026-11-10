@@ -18,7 +18,7 @@ Renders a hidden input and keeps a fresh token in it.
 | `lazy`              | `false`                          | Load Google's script only when the form is near the viewport.                                          |
 | `lazyRootMargin`    | `200px`                          | How early lazy loading starts.                                                                         |
 | `refreshIntervalMs` | `90000`                          | Delay before token renewal, capped at 110 seconds.                                                     |
-| `onTokenGenerated`  |                                  | Called with each new token, already in the hidden input. A throw is logged, not rethrown.              |
+| `onTokenGenerated`  |                                  | Called with each new token, already in the hidden input. Throws log the prop name only.                |
 | `onError`           |                                  | Called on each failed script load, token or renewal. Failures are retried, each attempt reported once. |
 
 Changing `lazy` from `true` to `false` starts loading immediately. Re-enabling lazy mode does not
@@ -40,7 +40,8 @@ A failed token request is retried after 5 seconds, then after 10, 20 and 30 seco
 with the same waits, until it works, the site key changes or the field unmounts, and a new key starts again at 5
 seconds. A token is cleared when its two minutes pass, and when `action` or `siteKey` changes, so going from one to
 another and back never shows the old token. `onTokenGenerated` and `onError` run after the field has updated its own
-state and timers, and one that throws is logged with `console.error` and ignored. See
+state and timers. A throw is logged with its prop name only, excluding the thrown value, message,
+stack and callback argument, and is ignored. See
 [Server Actions](server-actions.md) for retries after a refusal.
 
 ## `useRecaptcha`

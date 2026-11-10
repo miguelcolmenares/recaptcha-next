@@ -23,6 +23,30 @@ test.describe("with a stubbed Google script", () => {
     await expect(result(page)).toContainText('"success":false');
   });
 
+  test("a callback error containing the token cannot expose it in the console", async ({
+    page,
+  }) => {
+    const messages: string[] = [];
+    const uncaught: string[] = [];
+    page.on("console", (message) => messages.push(message.text()));
+    page.on("pageerror", (error) => uncaught.push(error.message));
+    await page.route(GOOGLE_SCRIPT, (route) =>
+      route.fulfill({
+        contentType: "application/javascript",
+        body: `window.grecaptcha = {
+        ready: callback => callback(),
+        execute: () => Promise.resolve("private-callback-test-token")
+      };`,
+      }),
+    );
+    await page.goto("/callback-error");
+    await expect(tokenInput(page)).toHaveValue("private-callback-test-token");
+    await expect.poll(() => messages).toContain("[recaptcha-next] onTokenGenerated threw");
+    expect(messages.join("\n")).not.toContain("private-callback-test-token");
+    expect(messages.join("\n")).not.toContain("private callback detail");
+    expect(uncaught).toEqual([]);
+  });
+
   test("a script response without an API is replaced on the automatic retry", async ({ page }) => {
     await page.clock.install();
     let requests = 0;

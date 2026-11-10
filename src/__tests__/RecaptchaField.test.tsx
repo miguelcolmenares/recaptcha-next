@@ -1322,6 +1322,36 @@ describe("RecaptchaField", () => {
       return { ...utils, value: () => hiddenInput(utils.container)?.value };
     }
 
+    it.each([
+      ["onTokenGenerated", "error"],
+      ["onTokenGenerated", "object"],
+      ["onError", "error"],
+      ["onError", "object"],
+    ] as const)("keeps %s callback failure logs private for an %s cause", async (name, kind) => {
+      const privateToken = "private-callback-test-token";
+      const privateDetail = "private-callback-test-detail";
+      const fail = () => {
+        if (kind === "error") throw new Error(`${privateToken}: ${privateDetail}`);
+        throw { token: privateToken, detail: privateDetail };
+      };
+      if (name === "onError") execute.mockRejectedValue(new Error(privateToken));
+      else execute.mockResolvedValue(privateToken);
+
+      const { value } = await mountWith({ [name]: fail, refreshIntervalMs: 1000 });
+      expect(logged.mock.calls).toEqual([[`[recaptcha-next] ${name} threw`]]);
+      if (name === "onTokenGenerated") expect(value()).toBe(privateToken);
+
+      await advance(name === "onError" ? 5000 : 1000);
+      expect(execute).toHaveBeenCalledTimes(2);
+      expect(logged.mock.calls).toEqual([
+        [`[recaptcha-next] ${name} threw`],
+        [`[recaptcha-next] ${name} threw`],
+      ]);
+      const output = JSON.stringify(logged.mock.calls);
+      expect(output).not.toContain(privateToken);
+      expect(output).not.toContain(privateDetail);
+    });
+
     it("onTokenGenerated throwing still sets the expiry timer and the next renewal", async () => {
       execute.mockResolvedValueOnce("token-1").mockRejectedValue(new Error("offline"));
       const { value } = await mountWith({
@@ -1330,10 +1360,7 @@ describe("RecaptchaField", () => {
         },
       });
       expect(value()).toBe("token-1");
-      expect(logged).toHaveBeenCalledWith(
-        expect.stringContaining("[recaptcha-next]"),
-        new Error("consumer bug"),
-      );
+      expect(logged).toHaveBeenCalledWith("[recaptcha-next] onTokenGenerated threw");
 
       await advance(90_000);
       expect(execute).toHaveBeenCalledTimes(2);
@@ -1377,10 +1404,7 @@ describe("RecaptchaField", () => {
       await advance(1); // 10 s later, so the failure count went up
       expect(execute).toHaveBeenCalledTimes(3);
       expect(onError).toHaveBeenCalledTimes(3);
-      expect(logged).toHaveBeenCalledWith(
-        expect.stringContaining("[recaptcha-next]"),
-        new Error("consumer bug"),
-      );
+      expect(logged).toHaveBeenCalledWith("[recaptcha-next] onError threw");
     });
 
     it("an onError that throws for a failed script load does not reach an error boundary", async () => {
@@ -1410,10 +1434,7 @@ describe("RecaptchaField", () => {
       expect(onError).toHaveBeenCalledWith(new Error("Failed to load reCAPTCHA script"));
       expect(container.textContent).not.toContain("boundary");
       expect(hiddenInput(container)).not.toBeNull();
-      expect(logged).toHaveBeenCalledWith(
-        expect.stringContaining("[recaptcha-next]"),
-        new Error("consumer bug"),
-      );
+      expect(logged).toHaveBeenCalledWith("[recaptcha-next] onError threw");
     });
   });
   describe("which reads of the form spend the token", () => {

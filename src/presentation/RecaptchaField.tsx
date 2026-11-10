@@ -23,14 +23,15 @@ export interface RecaptchaFieldProps {
   /**
    * Called on every new token, once the token is already in the hidden input, so reading or
    * submitting the form inside it sends this token. Unstable function props are safe, no
-   * `useCallback` needed. A callback that throws is logged with `console.error` and otherwise
-   * ignored.
+   * `useCallback` needed. Callback failures log the prop name only, without error contents,
+   * and are otherwise ignored.
    */
   onTokenGenerated?: (token: string) => void;
   /**
    * Called each time loading the script, making a token or a renewal fails. Failed loads and
    * renewals are retried, with a growing delay, so this can fire more than once in a row, once per
-   * failed attempt. A callback that throws is logged with `console.error` and otherwise ignored.
+   * failed attempt. Callback failures log the prop name only, without error contents, and are
+   * otherwise ignored.
    */
   onError?: (error: Error) => void;
 }

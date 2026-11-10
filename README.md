@@ -130,8 +130,11 @@ on a transport failure; it never rechecks a spent token automatically.
 | `lazy`              | `false`                          | Load Google's script only when the form is near the viewport.                                          |
 | `lazyRootMargin`    | `200px`                          | How early lazy loading starts.                                                                         |
 | `refreshIntervalMs` | `90000`                          | Delay before token renewal, capped at 110 seconds.                                                     |
-| `onTokenGenerated`  |                                  | Called with each new token, already in the hidden input. A throw is logged, not rethrown.              |
+| `onTokenGenerated`  |                                  | Called with each new token, already in the hidden input. Throws log the prop name only.                |
 | `onError`           |                                  | Called on each failed script load, token or renewal. Failures are retried, each attempt reported once. |
+
+A thrown consumer callback is reported with its prop name only. The package never writes its thrown
+value, message, stack or callback argument to the console.
 
 `useRecaptcha({ action, siteKey?, enabled? })` returns `{ status, error, execute }`.
 Use it only for a payload without a form element. The field remains the standard form integration.
