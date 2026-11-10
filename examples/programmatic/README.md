@@ -3,14 +3,14 @@
 A form that asks for a token when the visitor submits, and sends it in a `FormData` built by hand. Use this for custom `FormData` or a `fetch` call.
 
 ```tsx
-// app/ProgrammaticForm.tsx
+// app/programmatic-form/index.tsx
 "use client";
 
 import type { FormEvent } from "react";
 import { useRecaptcha } from "recaptcha-next/client";
-import { submitAction } from "./actions";
+import { submitAction } from "../actions";
 
-export function ProgrammaticForm() {
+export default function ProgrammaticForm() {
   const { status, execute } = useRecaptcha({ action: "contact" });
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {

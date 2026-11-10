@@ -31,17 +31,17 @@ RECAPTCHA_SECRET_KEY=your-secret-key
 Add the field to a form. It renders a hidden input named `g-recaptcha-response`.
 
 ```tsx
-// app/ContactForm.tsx
+// app/contact-form/index.tsx
 "use client";
 
 import { useActionState } from "react";
 import { RecaptchaField } from "recaptcha-next/client";
-import { sendMessage } from "./actions";
-import type { SubmitState } from "./actions";
+import { sendMessage } from "../actions";
+import type { SubmitState } from "../actions";
 
 const initialState: SubmitState = { success: null, reason: null };
 
-export function ContactForm() {
+export default function ContactForm() {
   const [state, formAction, pending] = useActionState(sendMessage, initialState);
   return (
     <form action={formAction}>
@@ -217,6 +217,17 @@ formData.set("g-recaptcha-response", await execute());
 ```
 
 ## Development
+
+Source and test names use kebab-case. Each layer exposes a barrel, and cross-layer imports use
+the `@/` alias for `src/`. Components use a folder with an `index.tsx` and a default export;
+the public `recaptcha-next/client` exports remain named.
+
+`src/presentation/recaptcha-field/index.tsx` renders the field and wires its hooks.
+The plain `token-renewal.ts` controller owns scheduling, expiry, retries and cancellation.
+`use-token-renewal.ts` synchronizes React and the input; `use-lazy-visibility.ts` observes visibility;
+`use-form-token-events.ts` subscribes to the enclosing form.
+Tests live in `__tests__/` inside their owning layer or component, with integration suites in
+`__tests__/integration/`. See [Testing](docs/testing.md) for the checks.
 
 ```bash
 cp .env.example .env.local   # add a real v3 key pair, with "localhost" in its domains

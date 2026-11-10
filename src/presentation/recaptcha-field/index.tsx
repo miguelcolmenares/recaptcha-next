@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef } from "react";
 import { RECAPTCHA_TOKEN_FIELD, TOKEN_REFRESH_MARGIN_MS, TOKEN_TTL_MS } from "@/domain";
-import { callSafely } from "@/presentation/call-safely";
 import { readSiteKey } from "@/presentation/read-site-key";
+import { useFormTokenEvents } from "@/presentation/use-form-token-events";
+import { useLazyVisibility } from "@/presentation/use-lazy-visibility";
 import { useRecaptcha } from "@/presentation/use-recaptcha";
+import { useTokenRenewal } from "@/presentation/use-token-renewal";
 
 export interface RecaptchaFieldProps {
   /** Action name, checked again on the server. */
@@ -36,35 +38,6 @@ export interface RecaptchaFieldProps {
   onError?: (error: Error) => void;
 }
 
-const DEFAULT_REFRESH_MS = TOKEN_TTL_MS - TOKEN_REFRESH_MARGIN_MS;
-/** First delay before retrying a failed token request. Each further failure doubles it. */
-const RETRY_DELAY_MS = 5_000;
-/** The retry delay never grows past this. */
-const RETRY_MAX_DELAY_MS = 30_000;
-/** A token request that has not answered by then counts as failed, so the next one can start. */
-const EXECUTE_TIMEOUT_MS = 10_000;
-
-/** Stops waiting on timeout or lifecycle cancellation. Late results are ignored. */
-function withTimeout<T>(pending: Promise<T>, ms: number, signal: AbortSignal): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  let onAbort: (() => void) | undefined;
-  const expired = new Promise<never>((_, reject) => {
-    timeout = setTimeout(
-      () => reject(new Error(`reCAPTCHA did not answer within ${ms / 1000} seconds`)),
-      ms,
-    );
-    onAbort = () => {
-      clearTimeout(timeout);
-      reject(new Error("reCAPTCHA request was cancelled"));
-    };
-    signal.addEventListener("abort", onAbort, { once: true });
-  });
-  return Promise.race([pending, expired]).finally(() => {
-    clearTimeout(timeout);
-    if (onAbort) signal.removeEventListener("abort", onAbort);
-  });
-}
-
 /**
  * Renders a hidden input that holds a token for the current action and site key. It is empty
  * until the first token arrives, again after a change until the new token arrives, and after a
@@ -89,181 +62,35 @@ export default function RecaptchaField({
   name = RECAPTCHA_TOKEN_FIELD,
   lazy = false,
   lazyRootMargin = "200px",
-  refreshIntervalMs = DEFAULT_REFRESH_MS,
+  refreshIntervalMs = TOKEN_TTL_MS - TOKEN_REFRESH_MARGIN_MS,
   onTokenGenerated,
   onError,
 }: RecaptchaFieldProps) {
   const siteKey = siteKeyProp ?? readSiteKey();
   const anchorRef = useRef<HTMLSpanElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [visible, setVisible] = useState(!lazy);
-  // Once eager loading is requested, later lazy changes must not stop the lifecycle.
-  if (!lazy && !visible) setVisible(true);
-  // A token is only shown for the action and site key it was made with, so a change
-  // leaves the field empty until the new token arrives, never with the old action's token.
-  const tokenKey = `${siteKey}\n${action}`;
-  const [issued, setIssued] = useState<{ key: string; value: string } | null>(null);
-  const token = issued?.key === tokenKey ? issued.value : "";
-
-  // Callbacks live in refs, so a new function identity on each render
-  // cannot restart the token effect.
-  const onTokenRef = useRef(onTokenGenerated);
-  const onErrorRef = useRef(onError);
-  // The interval is read each time a refresh is scheduled, so changing it never restarts the
-  // token effect or asks for a token nobody wanted.
-  const refreshIntervalRef = useRef(refreshIntervalMs);
-  useEffect(() => {
-    onTokenRef.current = onTokenGenerated;
-    onErrorRef.current = onError;
-    refreshIntervalRef.current = refreshIntervalMs;
+  const { visible, activate } = useLazyVisibility({
+    anchorRef,
+    siteKey,
+    lazy,
+    rootMargin: lazyRootMargin,
   });
-
-  useEffect(() => {
-    // Without a site key nothing is rendered, so there is no anchor to watch. Wait for the key,
-    // rather than treating the missing anchor as a reason to load at once.
-    if (!lazy || visible || !siteKey) return;
-    const anchor = anchorRef.current;
-    const form = anchor?.closest("form") ?? null;
-    const target = form ?? anchor?.parentElement ?? anchor;
-    // Without IntersectionObserver (old browsers, some test setups) load right away.
-    if (!target || typeof IntersectionObserver === "undefined") {
-      setVisible(true);
-      return;
-    }
-    // A submit before the field is visible (a programmatic requestSubmit, say) shows it, so the
-    // script loads and the next submit has a token. The submit that triggered this has none.
-    const show = () => setVisible(true);
-    form?.addEventListener("submit", show);
-    form?.addEventListener("formdata", show);
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setVisible(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin: lazyRootMargin },
-    );
-    observer.observe(target);
-    return () => {
-      observer.disconnect();
-      form?.removeEventListener("submit", show);
-      form?.removeEventListener("formdata", show);
-    };
-  }, [lazy, visible, lazyRootMargin, siteKey]);
-
-  const { status, error, execute } = useRecaptcha({ action, siteKey, enabled: visible });
-
-  useEffect(() => {
-    if (error) callSafely(onErrorRef.current, error, "onError");
-  }, [error]);
-
-  useEffect(() => {
-    if (status !== "ready") return;
-    let cancelled = false;
-    const cancellation = new AbortController();
-    // Next refresh, or the retry after a failure. Only one of them is pending at a time.
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    // The renewal after a form's data was read. It waits for the current task, so two
-    // formdata events of one submit become one request.
-    let renewal: ReturnType<typeof setTimeout> | undefined;
-    // Drops the token when its TTL passes. Cleared whenever the token is replaced or spent.
-    let expiry: ReturnType<typeof setTimeout> | undefined;
-    let inFlight = false;
-    let failures = 0;
-
-    const refresh = async () => {
-      // One request at a time.
-      if (inFlight) return;
-      inFlight = true;
-      clearTimeout(timer);
-      let next = "";
-      let failure: Error | undefined;
-      try {
-        next = await withTimeout(execute(), EXECUTE_TIMEOUT_MS, cancellation.signal);
-      } catch (cause) {
-        failure = cause instanceof Error ? cause : new Error(String(cause));
-      } finally {
-        inFlight = false;
-      }
-      if (cancelled) return;
-
-      // All bookkeeping comes first (the input, the expiry timer, the failure count and the next
-      // request). A callback runs last and through `callSafely`, so one that throws cannot skip
-      // any of it.
-      if (failure === undefined) {
-        failures = 0;
-        // The input is controlled, so React writes the new value only after the next render. The
-        // callback runs before that, and a consumer that reads or submits the form in it must
-        // already see this token. Write it now, in the same task. The state below holds the same
-        // value, so the render that follows changes nothing.
-        if (inputRef.current) inputRef.current.value = next;
-        setIssued({ key: tokenKey, value: next });
-        clearTimeout(expiry);
-        expiry = setTimeout(() => {
-          // Clear only the token that was issued here, never a newer one.
-          if (inputRef.current?.value === next) inputRef.current.value = "";
-          setIssued((current) =>
-            current?.key === tokenKey && current.value === next ? null : current,
-          );
-        }, TOKEN_TTL_MS);
-      } else {
-        failures += 1;
-      }
-      if (failure === undefined) {
-        timer = setTimeout(
-          refresh,
-          Math.min(refreshIntervalRef.current, TOKEN_TTL_MS - EXECUTE_TIMEOUT_MS),
-        );
-      } else {
-        const delay = Math.min(RETRY_DELAY_MS * 2 ** (failures - 1), RETRY_MAX_DELAY_MS);
-        timer = setTimeout(refresh, delay);
-      }
-
-      if (failure === undefined) callSafely(onTokenRef.current, next, "onTokenGenerated");
-      else callSafely(onErrorRef.current, failure, "onError");
-    };
-
-    // The browser has already read the spent token into this FormData, so it can be dropped
-    // now. The field is emptied at once, not after a render, so a read that follows in the same
-    // task cannot send it. A renewal is asked for only when a token was actually spent: an empty
-    // field has nothing to replace, and a request in flight will deliver a token that was never
-    // read. A failing renewal keeps its backoff this way, and one read means one request.
-    const onFormData = (event: Event) => {
-      // formdata bubbles, so a form nested in this one must not spend this field's token.
-      if (event.target !== form) return;
-      const spent = inputRef.current?.value ?? "";
-      clearTimeout(expiry);
-      if (inputRef.current) inputRef.current.value = "";
-      setIssued(null);
-      if (spent === "" || inFlight || renewal !== undefined) return;
-      renewal = setTimeout(() => {
-        renewal = undefined;
-        // Keep an unspent replacement. If it was read too, this task still owes a renewal.
-        if (inFlight || inputRef.current?.value !== "") return;
-        void refresh();
-      }, 0);
-    };
-    const form = anchorRef.current?.closest("form") ?? null;
-    form?.addEventListener("formdata", onFormData);
-
-    void refresh();
-
-    // The state is keyed by the pair, but it outlives this effect. Without clearing it here,
-    // going from A to B and back to A shows A's old token again, with no expiry timer left to
-    // drop it. Leaving the pair ends the token, in the state and in the input.
-    const input = inputRef.current;
-    return () => {
-      cancelled = true;
-      cancellation.abort();
-      clearTimeout(timer);
-      clearTimeout(renewal);
-      clearTimeout(expiry);
-      form?.removeEventListener("formdata", onFormData);
-      if (input) input.value = "";
-      setIssued(null);
-    };
-  }, [status, execute, tokenKey]);
+  const recaptcha = useRecaptcha({ action, siteKey, enabled: visible });
+  const { token, spendToken } = useTokenRenewal({
+    ...recaptcha,
+    action,
+    siteKey,
+    inputRef,
+    refreshIntervalMs,
+    onTokenGenerated,
+    onError,
+  });
+  useFormTokenEvents({
+    anchorRef,
+    siteKey,
+    onActivate: lazy && !visible ? activate : undefined,
+    onTokenSpent: spendToken,
+  });
 
   if (!siteKey) return null;
 

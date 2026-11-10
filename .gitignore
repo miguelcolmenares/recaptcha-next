@@ -12,3 +12,6 @@ e2e/fixture/.build/
 
 # Drawn by the docs workflow with social-card-action
 site/public/social.png
+
+# Local stack inventory
+.agents-toolkit-stack-context.json

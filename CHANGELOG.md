@@ -66,6 +66,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Package modules and tests use kebab-case, tests live with their owning layer or component,
+  and cross-layer imports use barrels with the `@/` source alias. `RecaptchaField` composes a plain
+  token renewal controller and hooks for React state, lazy visibility and form events.
+  Public package exports and runtime behavior are unchanged.
+
 - Integration examples use a typed `useActionState` form and direct verification. The documentation distinguishes automatic script/token retries from business submissions, which the package never replays.
 
 - The documentation site is upgraded to docs-sitekit 0.2.4, and a shared link to it now shows a picture: `site.image` names `/social.png`, a 1200 by 630 card that the docs workflow draws with [social-card-action](https://github.com/miguelcolmenares/social-card-action), so the pages have `og:image`, `twitter:image` and a large Twitter card.
