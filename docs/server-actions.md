@@ -17,17 +17,17 @@ The token travels in the form data, so a Server Action can verify it without any
 This is the pattern the package itself is tested with, using `useActionState` to show the result.
 
 ```tsx
-// app/ContactForm.tsx
+// app/contact-form/index.tsx
 "use client";
 
 import { useActionState } from "react";
 import { RecaptchaField } from "recaptcha-next/client";
-import { sendMessage } from "./actions";
-import type { SubmitState } from "./actions";
+import { sendMessage } from "../actions";
+import type { SubmitState } from "../actions";
 
 const initialState: SubmitState = { success: null, reason: null };
 
-export function ContactForm() {
+export default function ContactForm() {
   const [state, formAction, pending] = useActionState(sendMessage, initialState);
   return (
     <form action={formAction}>

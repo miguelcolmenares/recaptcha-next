@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
-import { loadRecaptcha } from "../infrastructure/scriptLoader";
-import type { Grecaptcha } from "../infrastructure/scriptLoader";
+import { loadRecaptcha } from "@/infrastructure/script-loader";
+import type { Grecaptcha } from "@/infrastructure/script-loader";
 
 const scripts = () =>
   document.head.querySelectorAll<HTMLScriptElement>('script[src*="recaptcha/api.js"]');

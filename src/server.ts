@@ -1,13 +1,20 @@
-import { createVerifyRecaptcha } from "./application/verifyRecaptcha";
-import type { VerifyRecaptcha } from "./application/verifyRecaptcha";
-import { ENV_SECRET_KEY } from "./domain/constants";
-import { createGoogleVerifyGateway } from "./infrastructure/googleVerifyGateway";
+import { createVerifyRecaptcha } from "@/application";
+import type { VerifyRecaptcha } from "@/application";
+import { ENV_SECRET_KEY } from "@/domain";
+import { createGoogleVerifyGateway } from "@/infrastructure";
 
-export { getRecaptchaToken } from "./application/getRecaptchaToken";
-export type { VerifyGateway, VerifyRecaptcha } from "./application/verifyRecaptcha";
-export { createVerifyRecaptcha } from "./application/verifyRecaptcha";
-export { createGoogleVerifyGateway } from "./infrastructure/googleVerifyGateway";
-export type * from "./domain/types";
+export { getRecaptchaToken } from "@/application";
+export type { VerifyGateway, VerifyRecaptcha } from "@/application";
+export { createVerifyRecaptcha } from "@/application";
+export { createGoogleVerifyGateway } from "@/infrastructure";
+export type {
+  RecaptchaVerifyResponse,
+  VerificationFailureReason,
+  VerificationSkipReason,
+  VerificationResult,
+  VerificationRules,
+  VerifyOptions,
+} from "@/domain";
 
 /** Unknown runtime modes enforce the same secret requirement as production. */
 function requiresConfiguredSecret(): boolean {

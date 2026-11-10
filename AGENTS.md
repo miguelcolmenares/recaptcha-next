@@ -14,11 +14,12 @@ src/
   domain/          pure rules, constants, types. No I/O, no React.
   application/     use cases and ports (interfaces). Depends on domain only.
   infrastructure/  adapters: Google HTTP gateway, browser script loader. Implements ports.
-  presentation/    React: the field component and the hook.
+  presentation/    token renewal controller and React hooks.
+    recaptcha-field/index.tsx  field render, props and hook wiring only.
   index.ts         root entry: values and types, no React
   client.ts        "use client" entry
   server.ts        server entry, where adapters are wired to use cases
-  __tests__/       unit tests, and __tests__/integration for tests with real HTTP
+  __tests__/       composition-root tests, including integration/server.test.ts.
 e2e/
   fixture/app/     Next.js app used to consume the packed tarball
   specs/           Playwright specs
@@ -26,21 +27,32 @@ scripts/           verify-package.mjs, the pack-and-install check
 ```
 
 Rules: dependencies point inward (presentation and infrastructure may import application and domain, never the
-reverse). Every layer has an `index.ts`, and other layers import it, not its files. Two exceptions, both on purpose:
-`client.ts` and `server.ts` are composition roots and import files directly, and `presentation` imports
-`infrastructure/scriptLoader` directly so the server-only Google gateway stays out of the browser bundle.
+reverse). Presentation also uses the browser adapter from infrastructure. Every layer has an `index.ts` that only
+re-exports. Code outside a layer, including the package entry points, imports its barrel, never its internal files.
+The package build removes unused exports from the infrastructure barrel; `verify:package` checks that the server
+gateway stays out of the browser bundle.
+
+Each layer owns a `__tests__/` folder. Integration suites live in that owner's `__tests__/integration/` folder.
+The root `src/__tests__/` tests the package composition roots; other tests live with their layer or component.
 
 ## Naming
 
-- Components: `PascalCase.tsx`. Hooks: `useThing.ts`. Everything else: `camelCase.ts`.
-- Tests: `src/__tests__/<unit>.test.ts(x)`. Specs: `e2e/specs/<feature>.spec.ts`.
+- Files and folders use kebab-case, for example `use-recaptcha.ts`, `script-loader.ts` and `token-renewal.test.ts`.
+- Each component has its own folder with an `index.tsx` containing only the component and its props interface.
+- Components use default exports. Barrels re-export them by their public names; other exports are named.
+- Each file owns one responsibility. Keep token scheduling in `token-renewal.ts`, React state and input synchronization
+  in `use-token-renewal.ts`, observation in `use-lazy-visibility.ts` and form listeners in `use-form-token-events.ts`.
+- Tests: `<owner>/__tests__/<module>.test.ts(x)`, one suite per module. Specs: `e2e/specs/<feature>.spec.ts`.
+- Source imports use `@/` for `src/`; relative imports are fine within the same folder. Cross-layer imports use barrels.
 - Types are exported with `export type`. Use `import type` for type-only imports.
+- Documentation comments use TSDoc syntax. Declare mocks before imports, and call every hook before a conditional return.
 
 ## Tests
 
 Three levels, all required for new behavior:
 
-1. **Unit** (`npm run test:unit`): one unit, no network. jsdom only where the DOM is needed (`@jest-environment jsdom`).
+1. **Unit** (`npm run test:unit`): no network. Test modules independently and retain field wiring regressions.
+   jsdom only where the DOM is needed (`@jest-environment jsdom`); `token-renewal` uses fake timers without a DOM.
 2. **Integration** (`npm run test:integration`): real use case and real adapter over a local HTTP server.
 3. **End-to-end** (`npm run test:e2e`): packs the tarball, installs it in `e2e/fixture`, builds it with Next.js,
    checks the build output, then runs Playwright.

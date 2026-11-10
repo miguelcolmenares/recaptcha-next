@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ContactForm } from "../ContactForm";
+import ContactForm from "../contact-form";
 
 export default function LazyTogglePage() {
   const [lazy, setLazy] = useState(true);

@@ -1,4 +1,4 @@
-import { RECAPTCHA_TOKEN_FIELD } from "../domain";
+import { RECAPTCHA_TOKEN_FIELD } from "@/domain";
 
 /**
  * Read the token from submitted form data. Returns null when the field is missing or empty,

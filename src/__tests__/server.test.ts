@@ -1,4 +1,4 @@
-import { isRecaptchaEnabled, verifyRecaptcha } from "../server";
+import { isRecaptchaEnabled, verifyRecaptcha } from "@/server";
 
 const originalEnvironment = process.env;
 
@@ -58,7 +58,7 @@ describe("default server failure logging", () => {
   ])("logs safe metadata from %p", async (response, reason, score, errorCodes) => {
     jest.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(response)));
     jest.resetModules();
-    const { verifyRecaptcha: verify } = await import("../server");
+    const { verifyRecaptcha: verify } = await import("@/server");
     await verify("private-test-token", { secret: "private-test-secret" });
     expect(console.error).toHaveBeenCalledWith("[recaptcha-next] verification failed", {
       reason,
@@ -75,7 +75,7 @@ describe("default server failure logging", () => {
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response(JSON.stringify({ success: true, score: 0.9 })));
     jest.resetModules();
-    const { verifyRecaptcha: verify } = await import("../server");
+    const { verifyRecaptcha: verify } = await import("@/server");
     expect((await verify("private-test-token", { secret: "private-test-secret" })).success).toBe(
       true,
     );

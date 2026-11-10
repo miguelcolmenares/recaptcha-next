@@ -31,17 +31,17 @@ The site key is public and is read in the browser. The secret key stays on the s
 `RecaptchaField` renders a hidden input named `g-recaptcha-response` and keeps a fresh token in it.
 
 ```tsx
-// app/ContactForm.tsx
+// app/contact-form/index.tsx
 "use client";
 
 import { useActionState } from "react";
 import { RecaptchaField } from "recaptcha-next/client";
-import { sendMessage } from "./actions";
-import type { SubmitState } from "./actions";
+import { sendMessage } from "../actions";
+import type { SubmitState } from "../actions";
 
 const initialState: SubmitState = { success: null, reason: null };
 
-export function ContactForm() {
+export default function ContactForm() {
   const [state, formAction, pending] = useActionState(sendMessage, initialState);
   return (
     <form action={formAction}>

@@ -2,18 +2,10 @@
 
 import { useActionState } from "react";
 import { RecaptchaField } from "recaptcha-next/client";
-import { submitAction } from "./actions";
-import type { SubmitState } from "./actions";
+import { submitAction } from "../actions";
+import { initialState } from "../initial-state";
 
-export const initialState: SubmitState = {
-  tokenReceived: false,
-  success: null,
-  reason: null,
-  score: null,
-  hostname: null,
-};
-
-export function ContactForm({
+export default function ContactForm({
   lazy = false,
   refreshIntervalMs,
 }: {

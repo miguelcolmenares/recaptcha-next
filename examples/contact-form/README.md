@@ -5,15 +5,18 @@ A form that verifies a visitor with a Server Action and shows the result. This i
 ## The form
 
 ```tsx
-// app/ContactForm.tsx
+// app/contact-form/index.tsx
 "use client";
 
 import { useActionState } from "react";
 import { RecaptchaField } from "recaptcha-next/client";
-import { submitAction } from "./actions";
+import { submitAction } from "../actions";
+import type { SubmitState } from "../actions";
 
-export function ContactForm({ lazy = false }: { lazy?: boolean }) {
-  const [state, formAction] = useActionState(submitAction, { success: null, reason: null });
+const initialState: SubmitState = { success: null, reason: null };
+
+export default function ContactForm({ lazy = false }: { lazy?: boolean }) {
+  const [state, formAction] = useActionState(submitAction, initialState);
   return (
     <form action={formAction}>
       <input name="message" />
@@ -32,8 +35,14 @@ export function ContactForm({ lazy = false }: { lazy?: boolean }) {
 "use server";
 
 import { getRecaptchaToken, verifyRecaptcha } from "recaptcha-next/server";
+import type { VerificationFailureReason } from "recaptcha-next/server";
 
-export async function submitAction(_previous: unknown, formData: FormData) {
+export interface SubmitState {
+  success: boolean | null;
+  reason: VerificationFailureReason | null;
+}
+
+export async function submitAction(_previous: unknown, formData: FormData): Promise<SubmitState> {
   const result = await verifyRecaptcha(getRecaptchaToken(formData), {
     expectedAction: "contact",
     expectedHostname: "example.com",

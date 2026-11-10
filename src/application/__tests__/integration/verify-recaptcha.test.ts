@@ -1,8 +1,8 @@
 import { createServer } from "node:http";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { createVerifyRecaptcha } from "../../application/verifyRecaptcha";
-import { createGoogleVerifyGateway } from "../../infrastructure/googleVerifyGateway";
+import { createVerifyRecaptcha } from "@/application/verify-recaptcha";
+import { createGoogleVerifyGateway } from "@/infrastructure";
 
 // Real use case + real gateway + real HTTP, against a local stand-in for Google.
 let server: Server;
