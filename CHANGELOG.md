@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Disabling lazy loading before an offscreen field becomes visible now starts loading; re-enabling lazy mode keeps that load and token lifecycle active.
+
 - The default server verifier logs failed checks with `reason`, `score` and `errorCodes`, without
   logging the token, secret or submitted form fields.
 - A replacement consumed before an earlier form-read task runs is renewed immediately. An unspent

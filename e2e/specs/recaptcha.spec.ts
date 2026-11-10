@@ -66,6 +66,22 @@ test.describe("with a stubbed Google script", () => {
     await expect(page.locator('script[src*="recaptcha/api.js"]')).toHaveCount(1);
   });
 
+  test("disabling lazy loading starts an offscreen field and enabling it again keeps the token", async ({
+    page,
+  }) => {
+    const requests = await stubGoogle(page);
+    await page.goto("/lazy-toggle");
+    await page.waitForLoadState("networkidle");
+    expect(requests).toHaveLength(0);
+    await expect(tokenInput(page)).toHaveValue("");
+
+    await page.getByRole("button", { name: "Load now" }).click();
+    await expect(tokenInput(page)).toHaveValue(STUB_TOKEN);
+    await page.getByRole("button", { name: "Enable lazy" }).click();
+    await expect(tokenInput(page)).toHaveValue(STUB_TOKEN);
+    expect(requests).toHaveLength(1);
+  });
+
   test("lazy mode loads Google only after the form scrolls into view", async ({ page }) => {
     const requests = await stubGoogle(page);
     await page.goto("/lazy");

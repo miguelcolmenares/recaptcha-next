@@ -16,6 +16,9 @@ Google's script is heavy, and a form far down the page may never be reached. Wit
 <RecaptchaField action="contact" lazy lazyRootMargin="600px" />
 ```
 
+Setting `lazy` to `false` starts loading immediately, even before the form becomes visible.
+Once loading has been requested, changing it back to `true` does not cancel the load or stop renewal.
+
 ## What a visitor sees
 
 Until the script loads there is no token, so a very fast submit can happen before one exists. The server then answers with `missing-token`. Show that reason as "try again" in the form, or use [`useRecaptcha`](api-client.md) and disable the button until its status is `ready`.

@@ -1192,6 +1192,36 @@ describe("RecaptchaField", () => {
       await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-1"));
     });
 
+    it("loads when lazy is disabled before visibility and stays active when lazy returns", async () => {
+      (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver =
+        FakeIntersectionObserver;
+      const { container, rerender } = render(
+        <form>
+          <RecaptchaField action="a" siteKey={site} lazy />
+        </form>,
+      );
+      expect(scripts()).toHaveLength(0);
+
+      rerender(
+        <form>
+          <RecaptchaField action="a" siteKey={site} lazy={false} />
+        </form>,
+      );
+      await tick();
+      expect(scripts()).toHaveLength(1);
+
+      // Re-enabling lazy while the eager request is pending must not cancel that load.
+      rerender(
+        <form>
+          <RecaptchaField action="a" siteKey={site} lazy />
+        </form>,
+      );
+      await finishScriptLoad();
+      await waitFor(() => expect(hiddenInput(container)?.value).toBe("token-1"));
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(scripts()).toHaveLength(1);
+    });
+
     it("falls back to eager loading when IntersectionObserver does not exist", async () => {
       const { container } = render(<RecaptchaField action="a" siteKey={site} lazy />);
       await finishScriptLoad();

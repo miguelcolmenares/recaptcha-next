@@ -70,8 +70,8 @@ export async function sendMessage(formData: FormData) {
 A token works once. When the browser builds the form's data for a submit, `RecaptchaField` asks for a new token,
 so a visitor who was refused can send the form again. A canceled submit renews nothing. Reading the form with
 `new FormData(form)` also renews it, so read it once, at submit time. Only a spent token is renewed: reading an empty
-field, or one with a request in flight, asks for nothing. Outside a `<form>` the field renews on its timer only. Older versions
-need the field to mount again after each server answer: give `<RecaptchaField>` a `key` that changes.
+field, or one with a request in flight, asks for nothing. Outside a `<form>` the field renews on its timer only.
+The package owns renewal; consumers do not need a changing `key` or a local reset hook.
 
 | Reason               | Meaning                                                               |
 | -------------------- | --------------------------------------------------------------------- |
@@ -82,14 +82,17 @@ need the field to mount again after each server answer: give `<RecaptchaField>` 
 | `missing-token`      | The form had no token yet, usually because the script has not loaded. |
 | `missing-secret`     | The server requires `RECAPTCHA_SECRET_KEY` and has none.              |
 | `request-failed`     | The request to Google failed.                                         |
+| `invalid-score`      | Google returned no finite score from 0 through 1.                     |
 
 The default `verifyRecaptcha` logs failed checks with `reason`, `score` and `errorCodes`. It never
 logs the token, secret or form fields. Custom verifiers built with `createVerifyRecaptcha` return
 the same typed failures and leave logging to their caller.
 
-A real visitor can score below the default for a reason on their side: a browser that blocks third-party
-storage, a VPN, or a new browser profile. Log `reason`, `score` and `errorCodes` on a refusal, never the token,
-and tune `minScore` from your own logs. The message `requestStorageAccess: Permission denied` in the console
+Investigate unexpected scores using the package's refusal records. Browser privacy settings, VPN use
+and new profiles are contexts to compare, not proof of the cause of a refusal. Tune `minScore` from
+real site traffic, as [Google recommends](https://developers.google.com/recaptcha/docs/v3); test scores
+can differ without real traffic ([FAQ](https://developers.google.com/recaptcha/docs/faq/)). Do not add
+a second failure log around the default verifier. The message `requestStorageAccess: Permission denied` in the console
 comes from Google's iframe and is not the cause of a refusal. See the [server actions guide](https://miguelcolmenares.com/recaptcha-next/docs/server-actions/)
 for the full table and examples.
 
@@ -175,8 +178,11 @@ Already-finished, unmarked tags time out because their load event cannot repeat.
 
 ## Custom `FormData`
 
-If you build `FormData` by hand instead of passing the `<form>`, the hidden input is not included.
-Read the token with `useRecaptcha().execute()` and append it yourself:
+Use `new FormData(form)` when a form element exists, then normalize its values or remove unwanted
+files before sending that same payload. The token is included and its renewal stays in the package.
+See [Custom FormData](https://miguelcolmenares.com/recaptcha-next/docs/custom-formdata/) for examples.
+
+For a payload without a form element, `useRecaptcha().execute()` provides a fresh token for each attempt:
 
 ```ts
 formData.set("g-recaptcha-response", await execute());

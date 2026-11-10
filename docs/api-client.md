@@ -21,6 +21,9 @@ Renders a hidden input and keeps a fresh token in it.
 | `onTokenGenerated`  |                                  | Called with each new token, already in the hidden input. A throw is logged, not rethrown.              |
 | `onError`           |                                  | Called on each failed script load, token or renewal. Failures are retried, each attempt reported once. |
 
+Changing `lazy` from `true` to `false` starts loading immediately. Re-enabling lazy mode does not
+cancel a load that was already requested.
+
 A token works once. When the browser builds the form's data for a submit (the `formdata` event), the field drops the
 token it held and asks for a new one, and the timer keeps renewing it. It asks only when a token was spent. Reading an
 empty field, or reading while a request is already in flight, asks for nothing, so a failing renewal keeps its
@@ -53,4 +56,5 @@ Options are `action`, `siteKey` and `enabled`. It returns:
 | `error`   | The error when the status is `error`, otherwise `null`.                     |
 | `execute` | Returns a promise of a fresh token. Call it when the user submits the form. |
 
-Use it when you build the `FormData` yourself. See [Custom FormData](custom-formdata.md).
+Use `RecaptchaField` with `new FormData(form)` for an existing form. Use this hook when a payload
+has no form element. See [Custom FormData](custom-formdata.md).

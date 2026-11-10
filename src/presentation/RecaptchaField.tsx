@@ -96,6 +96,8 @@ export function RecaptchaField({
   const anchorRef = useRef<HTMLSpanElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [visible, setVisible] = useState(!lazy);
+  // Once eager loading is requested, later lazy changes must not stop the lifecycle.
+  if (!lazy && !visible) setVisible(true);
   // A token is only shown for the action and site key it was made with, so a change
   // leaves the field empty until the new token arrives, never with the old action's token.
   const tokenKey = `${siteKey}\n${action}`;

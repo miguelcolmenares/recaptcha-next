@@ -71,8 +71,8 @@ Tests that need a real Google key skip themselves when the keys are missing.
 ## Tokens and refusals
 
 - A reCAPTCHA token is single use. Google spends it on the first check.
-- `RecaptchaField` renews the token on the `formdata` event, which fires when a submit builds the form's data (a canceled submit does not). `new FormData(form)` fires it too, so it spends the token: read the form once, at submit time. A renewal is asked for only when the input held a token and no request is in flight, and `formdata` from any other form (including a nested one) is ignored. Code that builds its own `FormData` must call `execute()` again before each attempt.
-- On a refusal, log `reason`, `score` and `errorCodes`. They are not secret.
+- `RecaptchaField` renews the token on the `formdata` event, which fires when a submit builds the form's data (a canceled submit does not). `new FormData(form)` fires it too, so it spends the token: read the form once, at submit time. A renewal is asked for only when the input held a token and no request is in flight, and `formdata` from any other form (including a nested one) is ignored. Build `new FormData(form)` when a form element exists, then normalize that payload. Do not copy its hidden token manually or remount the field after server answers. A payload without a form element can use `useRecaptcha().execute()` before each attempt.
+- The default `verifyRecaptcha` owns refusal logging: `reason`, `score` and `errorCodes`, with no token, secret or form fields. Consume its typed result without adding duplicate failure logs. Custom verifiers built with `createVerifyRecaptcha` leave observation to their caller.
 - Never log the token, and never log the secret key.
 
 ## Commits
