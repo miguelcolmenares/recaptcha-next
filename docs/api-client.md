@@ -35,6 +35,7 @@ A slow or failed renewal can still leave the field empty until a later request s
 If a replacement arrives before a pending renewal runs, it is kept while unspent; reading that replacement
 still results in a renewal. Changing the key or unmounting cancels the pending request deadline.
 
+`RecaptchaField` gives up waiting for a token request after ten seconds.
 A failed token request is retried after 5 seconds, then after 10, 20 and 30 seconds. A failed script load is retried
 with the same waits, until it works, the site key changes or the field unmounts, and a new key starts again at 5
 seconds. A token is cleared when its two minutes pass, and when `action` or `siteKey` changes, so going from one to
@@ -53,8 +54,13 @@ Options are `action`, `siteKey` and `enabled`. It returns:
 | Value     | Description                                                                 |
 | --------- | --------------------------------------------------------------------------- |
 | `status`  | `idle`, `loading`, `ready` or `error`.                                      |
-| `error`   | The error when the status is `error`, otherwise `null`.                     |
+| `error`   | The current key's last load error, or `null`.                               |
 | `execute` | Returns a promise of a fresh token. Call it when the user submits the form. |
 
 Use `RecaptchaField` with `new FormData(form)` for an existing form. Use this hook when a payload
 has no form element. See [Custom FormData](custom-formdata.md).
+
+The hook retries failed script loads, each bounded by the loader's 15-second deadline. Unlike
+`RecaptchaField`, it does not keep a token, expire it, renew it on form reads, or add a deadline or
+automatic retry around `execute()`. Await one fresh token per programmatic attempt and handle a
+rejected promise in the UI. It does not retry the request that consumes that token.

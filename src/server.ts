@@ -40,7 +40,7 @@ export const verifyRecaptcha: VerifyRecaptcha = async (token, options) => {
   return result;
 };
 
-/** True when verification is required, including in unknown runtime environments. */
+/** Reports strict-secret or configured-secret policy; always verify the submitted token. */
 export function isRecaptchaEnabled(): boolean {
   return requiresConfiguredSecret() || Boolean(process.env[ENV_SECRET_KEY]);
 }

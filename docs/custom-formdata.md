@@ -6,68 +6,24 @@ order: 5
 
 ## Start from the form
 
-When a form element exists, use `new FormData(form)`. It includes the hidden token and triggers the
-package's automatic renewal. Normalize fields or remove unwanted files from that same `FormData`
-before sending it to the Server Action. Sending it with `fetch` works the same way; the transport
-does not change which fields the browser captured.
+For a form, use the [standard Server Action integration](server-actions.md). React builds the
+`FormData` from the form's fields, including `RecaptchaField`, and the package owns token renewal.
 
-```tsx
-"use client";
+If an existing submit handler needs to normalize values or omit empty files, construct
+`new FormData(form)` once, normalize that same payload, and send it to the action. Do not rebuild
+it from React state or copy the hidden input manually. Both reading the form and submitting it
+fire `formdata`, so constructing a second payload can read an empty or different token.
 
-import type { FormEvent } from "react";
-import { RecaptchaField } from "recaptcha-next/client";
-import { sendMessage } from "./actions";
-
-export function ContactForm() {
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const formData = new FormData(event.currentTarget);
-    formData.set("message", String(formData.get("message") ?? "").trim());
-    await sendMessage(formData);
-  }
-
-  return (
-    <form onSubmit={onSubmit}>
-      <RecaptchaField action="contact" />
-      <input name="message" />
-      <button type="submit">Send</button>
-    </form>
-  );
-}
-```
-
-Do not copy the hidden input by hand or remount the field after a response. The package requests
-the next token. Read the form once per attempt and send that captured payload.
+Do not add a changing `key`, local reset hook, timer or Google-response classifier. Keep the field
+mounted and consume the verifier's typed result. The package does not replay the Server Action or
+business submission after a failure; the visitor starts another attempt with the new token.
 
 ## Payloads without a form element
 
-If no form element supplies the payload, ask for a fresh token at submit time with `useRecaptcha`
-and add it to the payload. This hook exposes the package's token generation directly.
+Use `useRecaptcha` only when no form element supplies the payload. Wait for `status === "ready"`,
+then await `execute()` for a fresh token before each attempt and send it in the payload's
+`g-recaptcha-response` field. Handle a rejected promise in the UI without reusing a previous token.
+See [Client API](api-client.md) for the hook's lower-level lifecycle and deadline limits.
 
-```tsx
-"use client";
-
-import { useRecaptcha } from "recaptcha-next/client";
-import { sendMessage } from "./actions";
-
-export function ProgrammaticRequest() {
-  const { status, execute } = useRecaptcha({ action: "contact" });
-
-  async function send() {
-    const formData = new FormData();
-    formData.set("message", "hello");
-    formData.set("g-recaptcha-response", await execute());
-    await sendMessage(formData);
-  }
-
-  return (
-    <button type="button" onClick={send} disabled={status !== "ready"}>
-      Send
-    </button>
-  );
-}
-```
-
-The server side is the same as for a normal form: `getRecaptchaToken(formData)` reads the `g-recaptcha-response` field. Pass a second argument to `getRecaptchaToken` if you named the field differently.
-
-`execute()` makes a new token each time it is called, so a token is never reused between submits.
+The server side uses the same `getRecaptchaToken(formData)` and `verifyRecaptcha` functions.
+Pass a second argument to `getRecaptchaToken` if the field has a different name.

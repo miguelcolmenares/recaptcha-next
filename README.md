@@ -34,15 +34,23 @@ Add the field to a form. It renders a hidden input named `g-recaptcha-response`.
 // app/ContactForm.tsx
 "use client";
 
+import { useActionState } from "react";
 import { RecaptchaField } from "recaptcha-next/client";
 import { sendMessage } from "./actions";
+import type { SubmitState } from "./actions";
+
+const initialState: SubmitState = { success: null, reason: null };
 
 export function ContactForm() {
+  const [state, formAction, pending] = useActionState(sendMessage, initialState);
   return (
-    <form action={sendMessage}>
+    <form action={formAction}>
       <input name="message" />
       <RecaptchaField action="contact" />
-      <button type="submit">Send</button>
+      <button type="submit" disabled={pending}>
+        Send
+      </button>
+      {state.success === false && <p role="alert">Could not verify your visit. Try again.</p>}
     </form>
   );
 }
@@ -55,13 +63,21 @@ Verify the token in the Server Action, with the same `action` name.
 "use server";
 
 import { getRecaptchaToken, verifyRecaptcha } from "recaptcha-next/server";
+import type { VerificationFailureReason } from "recaptcha-next/server";
 
-export async function sendMessage(formData: FormData) {
+export interface SubmitState {
+  success: boolean | null;
+  reason: VerificationFailureReason | null;
+}
+
+export async function sendMessage(
+  _previous: SubmitState,
+  formData: FormData,
+): Promise<SubmitState> {
   const result = await verifyRecaptcha(getRecaptchaToken(formData), { expectedAction: "contact" });
-  if (!result.success) {
-    return { error: result.reason }; // "low-score", "action-mismatch", "missing-token", ...
-  }
-  // ...handle the message
+  if (!result.success) return { success: false, reason: result.reason };
+  // Handle the message only after verification succeeds.
+  return { success: true, reason: null };
 }
 ```
 
@@ -96,6 +112,10 @@ a second failure log around the default verifier. The message `requestStorageAcc
 comes from Google's iframe and is not the cause of a refusal. See the [server actions guide](https://miguelcolmenares.com/recaptcha-next/docs/server-actions/)
 for the full table and examples.
 
+The package retries script loading and token generation, not Server Action execution or business
+submissions. The default server waits at most five seconds for Google and returns `request-failed`
+on a transport failure; it never rechecks a spent token automatically.
+
 ## API
 
 ### `recaptcha-next/client`
@@ -114,14 +134,16 @@ for the full table and examples.
 | `onError`           |                                  | Called on each failed script load, token or renewal. Failures are retried, each attempt reported once. |
 
 `useRecaptcha({ action, siteKey?, enabled? })` returns `{ status, error, execute }`.
-Use it to get a fresh token at submit time instead of keeping a hidden input.
+Use it only for a payload without a form element. The field remains the standard form integration.
+The hook retries script loads but does not add the field's token expiry, renewal, request deadline
+or generation retry around `execute()`. See [Client API](https://miguelcolmenares.com/recaptcha-next/docs/api-client/).
 
 ### `recaptcha-next/server`
 
 - `verifyRecaptcha(token, options?)` returns a `VerificationResult`, it does not throw.
   Options: `minScore` (default `0.5`), `expectedAction`, `expectedHostname`, `secret`, `remoteIp`.
 - `getRecaptchaToken(formData, field?)` returns the token or `null`.
-- `isRecaptchaEnabled()` indicates whether verification is required. It returns
+- `isRecaptchaEnabled()` reports the runtime secret-configuration policy. It returns
   `false` only in explicit development or test mode without a configured secret.
 - `createVerifyRecaptcha(deps)` and `createGoogleVerifyGateway(options)` build a custom verifier, for tests or other runtimes.
 
@@ -143,7 +165,9 @@ number outside 0 through 1. `minScore: 0` still accepts a genuine score of zero.
 `NODE_ENV` is exactly `"development"` or `"test"`, and logs a warning when it skips.
 Production, absent, empty and unknown values require the secret and return
 `missing-secret` if it is unavailable. Custom verifiers use their injected
-`isProduction` policy, where `true` enforces a configured secret.
+`isProduction` policy, where `true` enforces a configured secret. A missing token is always rejected
+before checking that secret. Use `isRecaptchaEnabled()` for configuration diagnostics, not to guard
+the verification call.
 
 ### Root entry
 

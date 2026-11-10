@@ -22,16 +22,21 @@ This is the pattern the package itself is tested with, using `useActionState` to
 
 import { useActionState } from "react";
 import { RecaptchaField } from "recaptcha-next/client";
-import { submitAction } from "./actions";
+import { sendMessage } from "./actions";
+import type { SubmitState } from "./actions";
+
+const initialState: SubmitState = { success: null, reason: null };
 
 export function ContactForm() {
-  const [state, formAction] = useActionState(submitAction, { success: null, reason: null });
+  const [state, formAction, pending] = useActionState(sendMessage, initialState);
   return (
     <form action={formAction}>
       <input name="message" />
       <RecaptchaField action="contact" />
-      <button type="submit">Send</button>
-      {state.success === false && <p role="alert">Could not verify you: {state.reason}</p>}
+      <button type="submit" disabled={pending}>
+        Send
+      </button>
+      {state.success === false && <p role="alert">Could not verify your visit. Try again.</p>}
     </form>
   );
 }
@@ -42,13 +47,21 @@ export function ContactForm() {
 "use server";
 
 import { getRecaptchaToken, verifyRecaptcha } from "recaptcha-next/server";
+import type { VerificationFailureReason } from "recaptcha-next/server";
 
-export async function submitAction(_previous: unknown, formData: FormData) {
-  const result = await verifyRecaptcha(getRecaptchaToken(formData), {
-    expectedAction: "contact",
-    expectedHostname: "example.com",
-  });
-  return { success: result.success, reason: result.success ? null : result.reason };
+export interface SubmitState {
+  success: boolean | null;
+  reason: VerificationFailureReason | null;
+}
+
+export async function sendMessage(
+  _previous: SubmitState,
+  formData: FormData,
+): Promise<SubmitState> {
+  const result = await verifyRecaptcha(getRecaptchaToken(formData), { expectedAction: "contact" });
+  if (!result.success) return { success: false, reason: result.reason };
+  // Handle the message only after verification succeeds.
+  return { success: true, reason: null };
 }
 ```
 
@@ -67,6 +80,20 @@ Reading the form with `new FormData(form)` also fires that event, so it renews t
 The package owns this lifecycle. Keep `RecaptchaField` mounted; a changing `key`, local reset hook
 or manual hidden-token copy is unnecessary. Upgrade an older version rather than recreating renewal
 in the application.
+
+## What is retried
+
+The package retries script loading and token generation. It does not replay a failed verification
+request or resubmit the Server Action, message, lead or payment. After a refusal, the visitor submits
+again with the field's new token; the application handles its own business operation once.
+
+- Script loading, including `grecaptcha.ready`, has a 15-second deadline per attempt.
+- `RecaptchaField` token generation has a ten-second deadline. Failed attempts wait 5, 10, 20 and
+  then 30 seconds between retries, returning to the first wait after success.
+- The default server's request to Google has a five-second deadline, including its response body.
+  Failure returns `request-failed` without another request using the same token.
+
+See [Client API](api-client.md) for the lower-level `useRecaptcha` contract.
 
 ## Refusal reasons
 
@@ -132,9 +159,12 @@ Start with the default. Review the scores in the package's refusal records for a
 
 ## When the secret is missing
 
-With the default server, a missing secret returns `missing-secret` unless
+A missing token always returns `missing-token`, before the secret is checked.
+With a present token, a missing secret returns `missing-secret` unless
 `NODE_ENV` is exactly `"development"` or `"test"`. Only those modes allow a skip
 with a warning. An absent variable, an empty value or `"staging"` requires the secret.
 
-`isRecaptchaEnabled()` follows the same policy. A guard using this helper therefore
-cannot skip verification merely because a production or unknown environment has no secret.
+`isRecaptchaEnabled()` describes the secret policy; it is not a replacement for verification.
+Always call `verifyRecaptcha` in the action, as shown above. Guarding that call with
+`isRecaptchaEnabled()` would also bypass the missing-token check in an unconfigured development
+environment.

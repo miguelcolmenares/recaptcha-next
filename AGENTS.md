@@ -73,6 +73,8 @@ Tests that need a real Google key skip themselves when the keys are missing.
 - A reCAPTCHA token is single use. Google spends it on the first check.
 - `RecaptchaField` renews the token on the `formdata` event, which fires when a submit builds the form's data (a canceled submit does not). `new FormData(form)` fires it too, so it spends the token: read the form once, at submit time. A renewal is asked for only when the input held a token and no request is in flight, and `formdata` from any other form (including a nested one) is ignored. Build `new FormData(form)` when a form element exists, then normalize that payload. Do not copy its hidden token manually or remount the field after server answers. A payload without a form element can use `useRecaptcha().execute()` before each attempt.
 - The default `verifyRecaptcha` owns refusal logging: `reason`, `score` and `errorCodes`, with no token, secret or form fields. Consume its typed result without adding duplicate failure logs. Custom verifiers built with `createVerifyRecaptcha` leave observation to their caller.
+- Retries belong to script loading and field token generation. The default server checks Google once, with a five-second deadline, and never replays a lead or other business submission. `useRecaptcha().execute()` is lower level: it has no field-owned generation deadline, retry, expiry or form-read renewal.
+- Always call `verifyRecaptcha` in a Server Action; `isRecaptchaEnabled()` is configuration diagnostics, not a verification bypass. Missing tokens are rejected before secret handling.
 - Never log the token, and never log the secret key.
 
 ## Commits
