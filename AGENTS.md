@@ -76,9 +76,11 @@ Tests that need a real Google key skip themselves when the keys are missing.
 - Errors that Google's own frames log in the console (for example `requestStorageAccess`) are not ours. The e2e
   helper filters them by origin and by one exact message, nothing broader.
 - Release with npm trusted publishing (OIDC). No long-lived tokens.
-- Node support: CI runs every Node line that is not past end of life (today 22, 24 and 26), and the e2e and publish
-  jobs run on the newest LTS. Node 22 ends on 2027-04-30: drop it from the matrix and from `engines` then. Node 26 became
-  LTS on 2026-10-28 and ends on 2029-04-30. Trusted publishing needs npm 11.5.1 or newer, which every Node here ships.
+- Node support: CI runs Node 24 and 26, never older (the fleet minimum is 24, and GitHub is retiring the Node 20 runtime
+  for actions), and the e2e and publish jobs run on the newest LTS. `engines` still says `>=22.0.0` and the README says
+  Node 22 or newer, but Node 22 is no longer tested. Node 22 ends on 2027-04-30: raise `engines` and the README then,
+  or earlier if the promise should match what CI checks. Node 26 became LTS on 2026-10-28 and ends on 2029-04-30.
+  Trusted publishing needs npm 11.5.1 or newer, which every Node here ships.
 
 ## Tokens and refusals
 
