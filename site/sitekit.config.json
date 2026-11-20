@@ -125,5 +125,9 @@
   },
   "lastUpdated": {
     "enabled": false
+  },
+  "analytics": {
+    "provider": "gtm",
+    "id": "GTM-P7JGH55"
   }
 }
